@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build"
+
+[project]
+name = "ai-teaching-copilot"
+version = "0.1.0"
+description = "AI Teaching Copilot - LangGraph-based intelligent teaching assistant"
+authors = [
+    {name = "AI Engineer", email = "engineer@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "langgraph==0.2.45",
+    "anthropic==0.37.1",
+    "pydantic==2.8.2",
+    "python-dotenv==1.0.1",
+    "typing-extensions==4.12.2"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "flake8"]
+
+[project.urls]
+Homepage = "https://github.com/example/ai-teaching-copilot"
+Repository = "https://github.com/example/ai-teaching-copilot"

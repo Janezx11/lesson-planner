@@ -1,0 +1,7 @@
+langgraph==0.2.45
+anthropic==0.37.1
+pydantic==2.8.2
+python-dotenv==1.0.1
+typing-extensions==4.12.2
+openai>=1.0.0
+dashscope>=1.10.0

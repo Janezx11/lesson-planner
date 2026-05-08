@@ -1,0 +1,119 @@
+# Python 虚拟环境
+venv/
+env/
+.venv/
+.env
+
+# 编译缓存和字节码
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 日志文件
+*.log
+teaching_copilot.log
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 临时文件和备份
+*.tmp
+*.temp
+.bak
+.backup
+*.orig
+*.rej
+
+# 测试输出
+test-results.xml
+coverage.xml
+.pytest_cache/
+
+# 打包文件
+*.zip
+*.tar.gz
+*.rar
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# 其他
+.coverage
+.pytest_cache/
+.mypy_cache/
+
+# 生成的教学方案 JSON
+teaching_plan_*.json
+
+# 调试文件
+debug_*.py
+verify_fix.py
+test_*.py
+simple_*.py
+final_test.py
+show_progress.py
+
+# 临时文件（但保留 requirements.txt）
+*.txt
+!requirements.txt
+
+# Claude 配置
+.claude/
+
+# uv 锁文件
+uv.lock
+
+# 临时文档
+*_FINAL*.md
+*_COMPLETE*.md
+*_UPDATE*.md
+*_SUMMARY*.md
+CHANGELOG.md
+COMPLETION_CHECKLIST.md
+CONTRIBUTING.md
+FINAL_*.md
+LONGCAT_CONFIGURATION.md
+MISSION_ACCOMPLISHED.md
+MULTIMODEL.md
+PROJECT_*.md
+QUICKSTART.md
+VERIFICATION.md
+README_*.md
+
+# 测试和调试脚本
+demo.py
+test.py
+test_*.py
+
+# 错误命名的文件
+g:*
