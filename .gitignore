@@ -75,6 +75,9 @@ coverage.xml
 # 生成的教学方案 JSON
 teaching_plan_*.json
 
+# 导出的教案文件
+outputs/
+
 # 调试文件
 debug_*.py
 verify_fix.py
