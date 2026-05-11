@@ -6,11 +6,17 @@ Teaching State 定义和类型系统
 
 重构说明：
 - 从 TypedDict 升级为 Pydantic BaseModel
-- 增加字段类型约束和默认值
-- 支持 LangGraph 的 partial update 模式
+- 节点输出字段使用 Dict[str, Any] 以支持 partial update
+- 但节点内部使用强类型 Pydantic Model 处理数据
+- 最终输出使用 FinalOutput 强类型 Model
+
+LangGraph Best Practice:
+- State 字段使用 Dict[str, Any] 以支持 partial update
+- 节点内部使用 Pydantic Model 进行类型安全处理
+- 最终输出使用强类型 Model 进行序列化
 """
 
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -18,18 +24,24 @@ class TeachingState(BaseModel):
     """
     AI Teaching Copilot 的核心状态定义
 
-    每个节点负责更新特定的字段：
-    - planner_node: plan
-    - knowledge_node: knowledge
-    - design_node: design
-    - content_node: content
-    - formatter_node: final_output
+    LangGraph Best Practice:
+    - 使用 Pydantic BaseModel 而非 TypedDict
+    - 支持 model_dump()、model_copy() 等方法
+    - 支持类型验证和自动序列化
 
-    重构后：
-    - 使用 Pydantic BaseModel 提供类型验证
-    - 所有字段都有默认值
-    - 支持 partial update 模式
+    节点输出字段使用 Dict[str, Any]：
+    - 这是 LangGraph partial update 的要求
+    - 节点返回 {"field": value} 格式
+    - LangGraph 自动合并到 state 中
+
+    但节点内部使用强类型 Pydantic Model：
+    - planner_node 使用 PlannerOutput
+    - knowledge_node 使用 KnowledgeOutput
+    - design_node 使用 DesignOutput
+    - content_node 使用 ContentOutput
+    - formatter_node 使用 FinalOutput
     """
+
     # 输入字段（必填）
     topic: str = Field(description="教学主题")
     grade: str = Field(description="年级信息")
@@ -38,6 +50,7 @@ class TeachingState(BaseModel):
     provider: str = Field(default="claude", description="LLM 提供商 (claude, qwen, longcat)")
 
     # 节点输出字段（由各节点填充）
+    # 使用 Dict[str, Any] 以支持 LangGraph partial update
     plan: Dict[str, Any] = Field(default_factory=dict, description="教学计划 (由 planner_node 生成)")
     knowledge: Dict[str, Any] = Field(default_factory=dict, description="知识结构 (由 knowledge_node 生成)")
     design: Dict[str, Any] = Field(default_factory=dict, description="教学设计 (由 design_node 生成)")
@@ -50,9 +63,7 @@ class TeachingState(BaseModel):
 
     class Config:
         """Pydantic 配置"""
-        # 允许任意类型（支持 dict 嵌套）
         arbitrary_types_allowed = True
-        # 使用 enum 值
         use_enum_values = True
 
 
@@ -89,33 +100,3 @@ class WorkflowEdges:
     DESIGN_TO_CONTENT = f"{NodeNames.DESIGN} -> {NodeNames.CONTENT}"
     CONTENT_TO_FORMATTER = f"{NodeNames.CONTENT} -> {NodeNames.FORMATTER}"
     FORMATTER_END = f"{NodeNames.FORMATTER} -> END"
-
-
-# 节点输出类型定义（用于类型提示）
-class PlannerOutput(BaseModel):
-    """planner_node 的输出"""
-    plan: Dict[str, Any] = Field(description="教学计划")
-
-
-class KnowledgeOutput(BaseModel):
-    """knowledge_node 的输出"""
-    knowledge: Dict[str, Any] = Field(description="知识结构")
-
-
-class DesignOutput(BaseModel):
-    """design_node 的输出"""
-    design: Dict[str, Any] = Field(description="教学设计")
-
-
-class ContentOutput(BaseModel):
-    """content_node 的输出"""
-    content: Dict[str, Any] = Field(description="教学内容")
-
-
-class FormatterOutput(BaseModel):
-    """formatter_node 的输出"""
-    final_output: Dict[str, Any] = Field(description="最终输出")
-
-
-# 所有节点输出类型的联合（用于类型提示）
-NodeOutput = Dict[str, Any]  # partial update dict

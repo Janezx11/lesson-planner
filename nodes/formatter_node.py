@@ -7,19 +7,23 @@ formatter_node - 最终输出整合节点
 - 添加元数据和统计信息
 
 输入：plan（骨架）+ knowledge（知识）+ design（互动）+ content（内容）
-输出：最终教学方案
+输出：FinalOutput: 强类型 Pydantic Model
 
 重构说明：
-- 改为返回 partial update（只返回 final_output 字段）
-- 不再返回完整 state
-- 由 workflow/builder 层负责 state merge
+- 使用 Pydantic FinalOutput 作为最终输出
+- 所有数据通过 Pydantic Model 处理
+- 保证类型安全和输出格式一致
 """
 
 import datetime
-import json
-from typing import Dict, Any, List
+from typing import Dict, Any
 from utils.logger import get_logger
 from graph.state import TeachingState
+from models.planner import TeachingObjectives, TeachingStage
+from models.knowledge import KnowledgeOutput
+from models.design import InteractionDesign, QuestionStrategy, EngagementPattern, FeedbackMechanism
+from models.content import PracticeDesign, BlackboardDesign, HomeworkItem, ContentMistake, TeacherScript
+from models.final import FinalOutput, PlanMetadata, OutputStatistics
 
 logger = get_logger(__name__)
 
@@ -28,11 +32,10 @@ def formatter_node(state: TeachingState) -> Dict[str, Any]:
     """
     最终输出整合节点
 
-    直接整合所有节点的输出，不再调用 LLM
+    直接整合所有节点的输出，不再调用 LLM。
+    使用 Pydantic Model 确保类型安全。
 
-    重构后返回 partial update:
-    - 成功时: {"final_output": final_output}
-    - 失败时: {"final_output": default_output, "error_count": state.error_count + 1}
+    返回 partial update: {"final_output": FinalOutput}
     """
     topic = state.topic
     grade = state.grade
@@ -48,8 +51,8 @@ def formatter_node(state: TeachingState) -> Dict[str, Any]:
         final_output = _integrate_outputs(topic, grade, plan, knowledge, design, content)
 
         logger.info("成功整合最终教学方案")
-        # 返回 partial update，只包含 final_output 字段
-        return {"final_output": final_output}
+        # 返回 partial update
+        return {"final_output": final_output.model_dump()}
 
     except Exception as e:
         logger.error(f"formatter_node 执行失败: {e}")
@@ -63,171 +66,199 @@ def _integrate_outputs(
     knowledge: Dict[str, Any],
     design: Dict[str, Any],
     content: Dict[str, Any]
-) -> Dict[str, Any]:
+) -> FinalOutput:
     """
     整合所有节点的输出
 
-    返回格式统一的最终教学方案
+    使用 Pydantic Model 进行类型安全的数据处理
     """
     # 元数据
-    metadata = {
-        "topic": topic,
-        "grade": grade,
-        "generated_at": datetime.datetime.now().isoformat(),
-        "version": "2.0",
-        "total_duration": plan.get("lesson_duration", "45分钟")
-    }
+    metadata = PlanMetadata(
+        topic=topic,
+        grade=grade,
+        generated_at=datetime.datetime.now().isoformat(),
+        version="2.0",
+        total_duration=plan.get("lesson_duration", "45分钟")
+    )
 
     # 课程概述
     lesson_overview = plan.get("lesson_overview", "")
 
     # 教学目标
-    teaching_objectives = plan.get("teaching_objectives", {
-        "cognitive": [],
-        "skill": [],
-        "attitude": []
-    })
+    teaching_objectives = None
+    if "teaching_objectives" in plan:
+        try:
+            teaching_objectives = TeachingObjectives(**plan["teaching_objectives"])
+        except Exception:
+            pass
 
-    # 教学流程（来自 planner_node）
-    teaching_process = plan.get("teaching_process", [])
+    # 教学流程
+    teaching_process = []
+    for stage in plan.get("teaching_process", []):
+        try:
+            teaching_process.append(TeachingStage(**stage))
+        except Exception:
+            pass
 
-    # 互动设计（来自 design_node）
-    interactive_design = design.get("interactive_design", [])
-    question_strategy = design.get("question_strategy", {})
-    engagement_patterns = design.get("engagement_patterns", [])
-    feedback_mechanisms = design.get("feedback_mechanisms", [])
+    # 互动设计
+    interaction_design = []
+    for item in design.get("interaction_design", []):
+        try:
+            interaction_design.append(InteractionDesign(**item))
+        except Exception:
+            pass
 
-    # 教学内容（来自 content_node）
-    practice_design = content.get("practice_design", {
-        "basic": [],
-        "intermediate": [],
-        "advanced": []
-    })
-    blackboard_design = content.get("blackboard_design", {
-        "layout": "",
-        "main_content": [],
-        "key_formulas": [],
-        "diagrams": []
-    })
-    homework = content.get("homework", [])
-    common_mistakes = content.get("common_mistakes", [])
-    teacher_script = content.get("teacher_script", [])
+    # 提问策略
+    question_strategy = None
+    if "question_strategy" in design:
+        try:
+            question_strategy = QuestionStrategy(**design["question_strategy"])
+        except Exception:
+            pass
+
+    # 参与模式
+    engagement_patterns = []
+    for item in design.get("engagement_patterns", []):
+        try:
+            engagement_patterns.append(EngagementPattern(**item))
+        except Exception:
+            pass
+
+    # 反馈机制
+    feedback_mechanisms = []
+    for item in design.get("feedback_mechanisms", []):
+        try:
+            feedback_mechanisms.append(FeedbackMechanism(**item))
+        except Exception:
+            pass
+
+    # 练习题设计
+    practice_design = None
+    if "practice_design" in content:
+        try:
+            practice_design = PracticeDesign(**content["practice_design"])
+        except Exception:
+            pass
+
+    # 板书设计
+    blackboard_design = None
+    if "blackboard_design" in content:
+        try:
+            blackboard_design = BlackboardDesign(**content["blackboard_design"])
+        except Exception:
+            pass
+
+    # 作业设计
+    homework = []
+    for item in content.get("homework", []):
+        try:
+            homework.append(HomeworkItem(**item))
+        except Exception:
+            pass
+
+    # 易错点
+    common_mistakes = []
+    for item in content.get("common_mistakes", []):
+        try:
+            common_mistakes.append(ContentMistake(**item))
+        except Exception:
+            pass
+
+    # 教师话术
+    teacher_script = []
+    for item in content.get("teacher_script", []):
+        try:
+            teacher_script.append(TeacherScript(**item))
+        except Exception:
+            pass
+
+    # 知识结构
+    knowledge_structure = None
+    if knowledge:
+        try:
+            knowledge_structure = KnowledgeOutput(**knowledge)
+        except Exception:
+            pass
+
+    # 统计信息
+    statistics = _generate_statistics(
+        practice_design=practice_design,
+        interaction_design=interaction_design,
+        homework=homework,
+        common_mistakes=common_mistakes
+    )
 
     # 构建最终输出
-    final_output = {
-        "metadata": metadata,
-        "lesson_overview": lesson_overview,
-        "teaching_objectives": teaching_objectives,
-        "teaching_process": teaching_process,
-        "interaction_design": interactive_design,
-        "question_strategy": question_strategy,
-        "engagement_patterns": engagement_patterns,
-        "feedback_mechanisms": feedback_mechanisms,
-        "practice_design": practice_design,
-        "blackboard_design": blackboard_design,
-        "homework": homework,
-        "common_mistakes": common_mistakes,
-        "teacher_script": teacher_script
-    }
-
-    # 添加知识结构（如果存在）
-    if knowledge:
-        final_output["knowledge_structure"] = knowledge
-
-    # 添加统计信息
-    final_output["statistics"] = _generate_statistics(final_output)
-
-    return final_output
+    return FinalOutput(
+        metadata=metadata,
+        lesson_overview=lesson_overview,
+        teaching_objectives=teaching_objectives,
+        teaching_process=teaching_process,
+        interaction_design=interaction_design,
+        question_strategy=question_strategy,
+        engagement_patterns=engagement_patterns,
+        feedback_mechanisms=feedback_mechanisms,
+        practice_design=practice_design,
+        blackboard_design=blackboard_design,
+        homework=homework,
+        common_mistakes=common_mistakes,
+        teacher_script=teacher_script,
+        knowledge_structure=knowledge_structure,
+        statistics=statistics
+    )
 
 
-def _generate_statistics(output: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    生成统计信息
-    """
-    # 练习题统计
-    practice = output.get("practice_design", {})
-    basic_count = len(practice.get("basic", []))
-    intermediate_count = len(practice.get("intermediate", []))
-    advanced_count = len(practice.get("advanced", []))
+def _generate_statistics(
+    practice_design: PracticeDesign = None,
+    interaction_design: list = None,
+    homework: list = None,
+    common_mistakes: list = None
+) -> OutputStatistics:
+    """生成统计信息"""
+    basic_count = len(practice_design.basic) if practice_design else 0
+    intermediate_count = len(practice_design.intermediate) if practice_design else 0
+    advanced_count = len(practice_design.advanced) if practice_design else 0
     total_questions = basic_count + intermediate_count + advanced_count
 
-    # 互动统计
-    interactive_count = len(output.get("interaction_design", []))
-    question_count = len(output.get("question_chain", []))
+    interactive_count = len(interaction_design) if interaction_design else 0
+    homework_count = len(homework) if homework else 0
+    mistakes_count = len(common_mistakes) if common_mistakes else 0
 
-    # 作业统计
-    homework_count = len(output.get("homework", []))
-
-    # 易错点统计
-    mistakes_count = len(output.get("common_mistakes", []))
-
-    return {
-        "total_questions": total_questions,
-        "basic_questions": basic_count,
-        "intermediate_questions": intermediate_count,
-        "advanced_questions": advanced_count,
-        "interactive_points": interactive_count,
-        "question_chain_length": question_count,
-        "homework_count": homework_count,
-        "common_mistakes_count": mistakes_count
-    }
+    return OutputStatistics(
+        total_questions=total_questions,
+        basic_questions=basic_count,
+        intermediate_questions=intermediate_count,
+        advanced_questions=advanced_count,
+        interactive_points=interactive_count,
+        homework_count=homework_count,
+        common_mistakes_count=mistakes_count
+    )
 
 
 def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
     """
     处理错误情况
 
-    返回 partial update，包含默认 final_output 和递增的 error_count
+    返回 partial update
     """
     logger.error(f"formatter_node 错误: {error_msg}")
 
     # 创建最小化的默认输出
-    default_output = {
-        "error": error_msg,
-        "metadata": {
-            "topic": state.topic,
-            "grade": state.grade,
-            "generated_at": datetime.datetime.now().isoformat(),
-            "version": "2.0",
-            "total_duration": "未知"
-        },
-        "lesson_overview": "教学方案生成失败，请重试",
-        "teaching_objectives": {
-            "cognitive": [],
-            "skill": [],
-            "attitude": []
-        },
-        "teaching_process": [],
-        "interaction_design": [],
-        "question_chain": [],
-        "practice_design": {
-            "basic": [],
-            "intermediate": [],
-            "advanced": []
-        },
-        "blackboard_design": {
-            "layout": "",
-            "main_content": [],
-            "key_formulas": [],
-            "diagrams": []
-        },
-        "homework": [],
-        "common_mistakes": [],
-        "statistics": {
-            "total_questions": 0,
-            "basic_questions": 0,
-            "intermediate_questions": 0,
-            "advanced_questions": 0,
-            "interactive_points": 0,
-            "question_chain_length": 0,
-            "homework_count": 0,
-            "common_mistakes_count": 0
-        }
-    }
+    default_output = FinalOutput(
+        metadata=PlanMetadata(
+            topic=state.topic,
+            grade=state.grade,
+            generated_at=datetime.datetime.now().isoformat(),
+            version="2.0",
+            total_duration="未知"
+        ),
+        lesson_overview="教学方案生成失败，请重试",
+        error=error_msg,
+        statistics=OutputStatistics()
+    )
 
-    # 返回 partial update，只包含 final_output 和 error_count
     return {
-        "final_output": default_output,
+        "final_output": default_output.model_dump(),
         "error_count": state.error_count + 1
     }
 

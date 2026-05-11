@@ -107,9 +107,40 @@ def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
     }
 ```
 
+### Pydantic 强类型模型
+
+所有节点输出都使用 Pydantic Model 定义，自动保证类型安全：
+
+```python
+# models/planner.py
+class TeachingStage(BaseModel):
+    stage_name: str = Field(description="阶段名称")
+    teaching_strategy: str = Field(description="教学策略")
+    teacher_activity: List[str] = Field(default_factory=list)
+    student_activity: List[str] = Field(default_factory=list)
+
+class PlannerOutput(BaseModel):
+    lesson_overview: str = Field(description="认知主线")
+    cognitive_progression: List[str] = Field(default_factory=list)
+    teaching_process: List[TeachingStage] = Field(default_factory=list)
+```
+
+```python
+# models/design.py
+class TeacherBehavior(BaseModel):
+    action: str = Field(description="具体行动")
+    purpose: str = Field(description="行动目的")
+
+class InteractionDesign(BaseModel):
+    stage_name: str = Field(description="阶段名称")
+    interaction_type: str = Field(description="互动类型")
+    teacher_behavior: TeacherBehavior = Field(description="教师行为")
+    student_behavior: StudentBehavior = Field(description="学生行为")
+```
+
 ### 核心字段
 
-#### planner_node 输出
+#### planner_node 输出 (PlannerOutput)
 
 ```json
 {
@@ -133,7 +164,7 @@ def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
 }
 ```
 
-#### design_node 输出（学科无关）
+#### design_node 输出 (DesignOutput)
 
 ```json
 {
@@ -212,6 +243,13 @@ lesson-planner/
 │   ├── __init__.py           # 模块导出
 │   ├── state.py              # Pydantic BaseModel 状态定义
 │   └── builder.py            # LangGraph 工作流构建器
+├── models/                   # Pydantic 强类型模型（新增）
+│   ├── __init__.py           # 模块导出
+│   ├── planner.py            # planner_node 输出模型
+│   ├── knowledge.py          # knowledge_node 输出模型
+│   ├── design.py             # design_node 输出模型
+│   ├── content.py            # content_node 输出模型
+│   └── final.py              # formatter_node 输出模型
 ├── nodes/
 │   ├── __init__.py           # 模块导出
 │   ├── planner_node.py       # 认知路线设计节点
@@ -221,7 +259,7 @@ lesson-planner/
 │   └── formatter_node.py     # 最终整合节点
 ├── llm/
 │   ├── __init__.py           # 模块导出
-│   ├── base.py               # LLM 基础抽象层
+│   ├── base.py               # LLM 基础抽象层（支持 Pydantic Model）
 │   ├── config.py             # 配置管理（严格隔离业务字段）
 │   ├── factory.py            # 工厂模式（状态→配置→客户端）
 │   ├── longcat.py            # LongCat API 客户端
@@ -304,7 +342,30 @@ class LLMConfig:
 - 由 workflow 层负责 state merge
 - 支持类型验证和自动序列化
 
-### 5. 多提供商支持
+### 5. Pydantic 强类型结构化输出
+
+- 所有节点输出使用 Pydantic Model
+- 删除手写 JSON Schema dict
+- 使用 `generate_structured_output_v2()` 自动校验
+- 自动从 Pydantic Model 生成 JSON Schema
+- ValidationError 自动捕获和处理
+
+```python
+# 节点内部使用强类型 Model
+from models.planner import PlannerOutput, TeachingStage
+
+# 自动从 Pydantic Model 生成 schema
+planner_output = llm_client.generate_structured_output_v2(
+    prompt=prompt,
+    output_model=PlannerOutput,  # Pydantic Model 类
+    system_prompt=system_prompt
+)
+
+# 返回类型安全的 partial update
+return {"plan": planner_output.model_dump()}
+```
+
+### 6. 多提供商支持
 
 - 统一的 LLM 抽象层
 - 支持 LongCat、Claude、Qwen

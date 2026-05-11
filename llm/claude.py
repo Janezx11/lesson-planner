@@ -102,7 +102,8 @@ class ClaudeClient(BaseLLMClient):
             return json.dumps(fallback, ensure_ascii=False, indent=2)
 
     def generate_structured_output(self, prompt: str, schema: Dict[str, Any],
-                                 system_prompt: Optional[str] = None) -> Dict[str, Any]:
+                                 system_prompt: Optional[str] = None,
+                                 required_fields: Optional[list] = None) -> Dict[str, Any]:
         """
         生成结构化输出
 
