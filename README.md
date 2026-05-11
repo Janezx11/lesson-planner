@@ -55,6 +55,58 @@ formatter_node (最终整合)
 | **content_node** | 生成学科内容 | 认知路线 + 教学行为 | 练习题、板书、作业、教师话术 |
 | **formatter_node** | 整合最终输出 | 所有节点输出 | 完整教学方案 |
 
+### 状态管理（LangGraph 标准模式）
+
+项目采用标准 LangGraph 状态管理模式：
+
+#### Pydantic BaseModel 状态定义
+
+```python
+class TeachingState(BaseModel):
+    # 输入字段
+    topic: str = Field(description="教学主题")
+    grade: str = Field(description="年级信息")
+
+    # 配置字段
+    provider: str = Field(default="claude", description="LLM 提供商")
+
+    # 节点输出字段（由各节点填充）
+    plan: Dict[str, Any] = Field(default_factory=dict)
+    knowledge: Dict[str, Any] = Field(default_factory=dict)
+    design: Dict[str, Any] = Field(default_factory=dict)
+    content: Dict[str, Any] = Field(default_factory=dict)
+    final_output: Dict[str, Any] = Field(default_factory=dict)
+
+    # 控制字段
+    error_count: int = Field(default=0)
+    max_retries: int = Field(default=3)
+```
+
+#### Partial Update 模式
+
+所有节点返回 partial update（只返回修改的字段），由 LangGraph 自动合并：
+
+```python
+# 节点返回格式
+def planner_node(state: TeachingState) -> Dict[str, Any]:
+    # ... 业务逻辑 ...
+    return {"plan": plan_data}  # 只返回 plan 字段
+
+def design_node(state: TeachingState) -> Dict[str, Any]:
+    # ... 业务逻辑 ...
+    return {"design": design_data}  # 只返回 design 字段
+```
+
+#### 错误处理标准化
+
+```python
+def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
+    return {
+        "plan": default_plan,
+        "error_count": state.error_count + 1  # 递增错误计数
+    }
+```
+
 ### 核心字段
 
 #### planner_node 输出
@@ -112,6 +164,7 @@ formatter_node (最终整合)
 
 - **Python 3.9+**
 - **LangGraph**：工作流编排
+- **Pydantic**：状态模型和类型验证
 - **多LLM提供商**：LongCat、Claude、Qwen
 - **OpenAI兼容SDK**：统一API接口
 
@@ -156,15 +209,18 @@ python app.py --topic "光合作用" --grade "高中一年级" --provider qwen
 lesson-planner/
 ├── app.py                    # 主应用入口
 ├── graph/
-│   ├── state.py              # 状态定义
+│   ├── __init__.py           # 模块导出
+│   ├── state.py              # Pydantic BaseModel 状态定义
 │   └── builder.py            # LangGraph 工作流构建器
 ├── nodes/
+│   ├── __init__.py           # 模块导出
 │   ├── planner_node.py       # 认知路线设计节点
 │   ├── knowledge_node.py     # 知识结构分析节点
 │   ├── design_node.py        # 通用教学行为节点（学科无关）
 │   ├── content_node.py       # 学科内容生成节点
 │   └── formatter_node.py     # 最终整合节点
 ├── llm/
+│   ├── __init__.py           # 模块导出
 │   ├── base.py               # LLM 基础抽象层
 │   ├── config.py             # 配置管理（严格隔离业务字段）
 │   ├── factory.py            # 工厂模式（状态→配置→客户端）
@@ -178,8 +234,11 @@ lesson-planner/
 │   ├── content.txt           # 学科内容生成 prompt
 │   └── formatter.txt         # 最终整合 prompt
 ├── utils/
+│   ├── __init__.py           # 模块导出
 │   ├── logger.py             # 日志工具
 │   └── parser.py             # JSON 解析工具
+├── tests/
+│   └── __init__.py           # 测试模块
 └── docs/
     ├── ARCHITECTURE.md       # 架构文档
     ├── DEVELOPMENT_GUIDE.md  # 开发指南
@@ -238,7 +297,14 @@ class LLMConfig:
 - 每个节点职责单一
 - 输出格式统一且可验证
 
-### 4. 多提供商支持
+### 4. LangGraph 标准状态管理
+
+- 使用 Pydantic BaseModel 定义状态
+- 所有节点返回 partial update
+- 由 workflow 层负责 state merge
+- 支持类型验证和自动序列化
+
+### 5. 多提供商支持
 
 - 统一的 LLM 抽象层
 - 支持 LongCat、Claude、Qwen
@@ -288,6 +354,24 @@ class LLMConfig:
 1. 在 `nodes/design_node.py` 中更新 `INTERACTION_TYPES` 列表
 2. 更新 `PEDAGOGY_METHODS` 列表
 3. 更新 prompt 中的教学行为说明
+
+### 添加新节点
+
+1. 在 `nodes/` 目录下创建新节点文件
+2. 实现节点函数，返回 partial update
+3. 在 `nodes/__init__.py` 中导出
+4. 在 `graph/builder.py` 中注册节点和边
+
+```python
+# 新节点示例
+def new_node(state: TeachingState) -> Dict[str, Any]:
+    # 读取状态
+    topic = state.topic
+    # ... 业务逻辑 ...
+
+    # 返回 partial update（只返回修改的字段）
+    return {"new_field": new_data}
+```
 
 ## 许可证
 
