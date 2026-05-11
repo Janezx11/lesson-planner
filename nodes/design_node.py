@@ -19,6 +19,11 @@ design_node - 通用教学行为设计节点
 - 具体学科知识（由 content_node 负责）
 - 具体问题内容（由 content_node 负责）
 - 具体案例（由 content_node 负责）
+
+重构说明：
+- 改为返回 partial update（只返回 design 字段）
+- 不再返回完整 state
+- 由 workflow/builder 层负责 state merge
 """
 
 import json
@@ -161,15 +166,19 @@ def _check_no_subject_content(data: Any, path: str, issues: List[str]) -> None:
             _check_no_subject_content(item, f"{path}[{i}]", issues)
 
 
-def design_node(state: TeachingState) -> TeachingState:
+def design_node(state: TeachingState) -> Dict[str, Any]:
     """
     通用教学行为设计节点
 
     设计与学科无关的教学行为模式
+
+    重构后返回 partial update:
+    - 成功时: {"design": design_data}
+    - 失败时: {"design": default_design, "error_count": state.error_count + 1}
     """
-    topic = state["topic"]
-    grade = state["grade"]
-    plan = state.get("plan", {})
+    topic = state.topic
+    grade = state.grade
+    plan = state.plan
 
     logger.info(f"开始设计通用教学行为: 主题={topic}, 年级={grade}")
 
@@ -190,7 +199,7 @@ def design_node(state: TeachingState) -> TeachingState:
 
     try:
         # 调用 LLM API
-        llm_client = get_llm_for_state(state)
+        llm_client = get_llm_for_state(state.model_dump())
 
         # 重试机制
         max_retries = 3
@@ -211,10 +220,8 @@ def design_node(state: TeachingState) -> TeachingState:
 
                 if is_valid:
                     logger.info("成功设计通用教学行为")
-                    return {
-                        **state,
-                        "design": design_data
-                    }
+                    # 返回 partial update，只包含 design 字段
+                    return {"design": design_data}
                 else:
                     logger.warning(f"输出验证未通过 (尝试 {attempt + 1}/{max_retries}):")
                     for issue in issues:
@@ -223,10 +230,7 @@ def design_node(state: TeachingState) -> TeachingState:
                     # 如果是最后一次尝试，使用当前结果
                     if attempt == max_retries - 1:
                         logger.warning("达到最大重试次数，使用当前结果")
-                        return {
-                            **state,
-                            "design": design_data
-                        }
+                        return {"design": design_data}
 
             except Exception as e:
                 logger.warning(f"第 {attempt + 1} 次尝试失败: {e}")
@@ -236,10 +240,7 @@ def design_node(state: TeachingState) -> TeachingState:
         # 如果所有尝试都失败，创建默认值
         logger.warning("所有重试都失败，使用默认教学行为")
         design_data = _create_default_design()
-        return {
-            **state,
-            "design": design_data
-        }
+        return {"design": design_data}
 
     except Exception as e:
         logger.error(f"design_node 执行失败: {e}")
@@ -445,23 +446,22 @@ def _create_default_design() -> Dict[str, Any]:
     }
 
 
-def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
-    """处理错误情况"""
+def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
+    """
+    处理错误情况
+
+    返回 partial update，包含默认 design 和递增的 error_count
+    """
     logger.error(f"design_node 错误: {error_msg}")
 
     default_design = _create_default_design()
     default_design["error"] = error_msg
 
-    new_state = {
-        **state,
+    # 返回 partial update，只包含 design 和 error_count
+    return {
         "design": default_design,
-        "error_count": state["error_count"] + 1
+        "error_count": state.error_count + 1
     }
-
-    if new_state["error_count"] >= state["max_retries"]:
-        logger.critical("达到最大重试次数，工作流将终止")
-
-    return new_state
 
 
 # 注册节点到工作流

@@ -17,6 +17,11 @@ planner_node - 教学认知路线设计节点
 禁止生成：
 - 完整师生对话（由 design_node 负责）
 - 练习题、板书、作业（由 content_node 负责）
+
+重构说明：
+- 改为返回 partial update（只返回 plan 字段）
+- 不再返回完整 state
+- 由 workflow/builder 层负责 state merge
 """
 
 from typing import Dict, Any, List
@@ -194,14 +199,18 @@ def validate_planner_output(data: Dict[str, Any]) -> tuple[bool, List[str]]:
     return len(issues) == 0, issues
 
 
-def planner_node(state: TeachingState) -> TeachingState:
+def planner_node(state: TeachingState) -> Dict[str, Any]:
     """
     教学认知路线设计节点
 
     设计学生认知推进路线，而不是传统教学目录
+
+    重构后返回 partial update:
+    - 成功时: {"plan": plan_data}
+    - 失败时: {"plan": default_plan, "error_count": state.error_count + 1}
     """
-    topic = state["topic"]
-    grade = state["grade"]
+    topic = state.topic
+    grade = state.grade
 
     logger.info(f"开始设计认知推进路线: 主题={topic}, 年级={grade}")
 
@@ -221,7 +230,7 @@ def planner_node(state: TeachingState) -> TeachingState:
 
     try:
         # 临时设置低 temperature
-        llm_state = {**state, 'temperature': 0.3}
+        llm_state = {**state.model_dump(), 'temperature': 0.3}
 
         # 调用 LLM API
         llm_client = get_llm_for_state(llm_state)
@@ -245,10 +254,8 @@ def planner_node(state: TeachingState) -> TeachingState:
 
                 if is_valid:
                     logger.info("成功设计认知推进路线")
-                    return {
-                        **state,
-                        "plan": plan_data
-                    }
+                    # 返回 partial update，只包含 plan 字段
+                    return {"plan": plan_data}
                 else:
                     logger.warning(f"输出验证未通过 (尝试 {attempt + 1}/{max_retries}):")
                     for issue in issues:
@@ -257,10 +264,7 @@ def planner_node(state: TeachingState) -> TeachingState:
                     # 如果是最后一次尝试，使用当前结果
                     if attempt == max_retries - 1:
                         logger.warning("达到最大重试次数，使用当前结果")
-                        return {
-                            **state,
-                            "plan": plan_data
-                        }
+                        return {"plan": plan_data}
 
             except Exception as e:
                 logger.warning(f"第 {attempt + 1} 次尝试失败: {e}")
@@ -270,10 +274,7 @@ def planner_node(state: TeachingState) -> TeachingState:
         # 如果所有尝试都失败，创建默认值
         logger.warning("所有重试都失败，使用默认认知路线")
         plan_data = _create_default_plan()
-        return {
-            **state,
-            "plan": plan_data
-        }
+        return {"plan": plan_data}
 
     except Exception as e:
         logger.error(f"planner_node 执行失败: {e}")
@@ -412,23 +413,22 @@ def _create_default_plan() -> Dict[str, Any]:
     }
 
 
-def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
-    """处理错误情况"""
+def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
+    """
+    处理错误情况
+
+    返回 partial update，包含默认 plan 和递增的 error_count
+    """
     logger.error(f"planner_node 错误: {error_msg}")
 
     default_plan = _create_default_plan()
     default_plan["error"] = error_msg
 
-    new_state = {
-        **state,
+    # 返回 partial update，只包含 plan 和 error_count
+    return {
         "plan": default_plan,
-        "error_count": state["error_count"] + 1
+        "error_count": state.error_count + 1
     }
-
-    if new_state["error_count"] >= state["max_retries"]:
-        logger.critical("达到最大重试次数，工作流将终止")
-
-    return new_state
 
 
 # 注册节点到工作流

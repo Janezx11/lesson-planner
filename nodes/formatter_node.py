@@ -8,6 +8,11 @@ formatter_node - 最终输出整合节点
 
 输入：plan（骨架）+ knowledge（知识）+ design（互动）+ content（内容）
 输出：最终教学方案
+
+重构说明：
+- 改为返回 partial update（只返回 final_output 字段）
+- 不再返回完整 state
+- 由 workflow/builder 层负责 state merge
 """
 
 import datetime
@@ -19,18 +24,22 @@ from graph.state import TeachingState
 logger = get_logger(__name__)
 
 
-def formatter_node(state: TeachingState) -> TeachingState:
+def formatter_node(state: TeachingState) -> Dict[str, Any]:
     """
     最终输出整合节点
 
     直接整合所有节点的输出，不再调用 LLM
+
+    重构后返回 partial update:
+    - 成功时: {"final_output": final_output}
+    - 失败时: {"final_output": default_output, "error_count": state.error_count + 1}
     """
-    topic = state["topic"]
-    grade = state["grade"]
-    plan = state.get("plan", {})
-    knowledge = state.get("knowledge", {})
-    design = state.get("design", {})
-    content = state.get("content", {})
+    topic = state.topic
+    grade = state.grade
+    plan = state.plan
+    knowledge = state.knowledge
+    design = state.design
+    content = state.content
 
     logger.info(f"开始整合最终教学方案: 主题={topic}, 年级={grade}")
 
@@ -39,10 +48,8 @@ def formatter_node(state: TeachingState) -> TeachingState:
         final_output = _integrate_outputs(topic, grade, plan, knowledge, design, content)
 
         logger.info("成功整合最终教学方案")
-        return {
-            **state,
-            "final_output": final_output
-        }
+        # 返回 partial update，只包含 final_output 字段
+        return {"final_output": final_output}
 
     except Exception as e:
         logger.error(f"formatter_node 执行失败: {e}")
@@ -86,9 +93,9 @@ def _integrate_outputs(
 
     # 互动设计（来自 design_node）
     interactive_design = design.get("interactive_design", [])
-    question_chain = design.get("question_chain", [])
-    group_activities = design.get("group_activities", [])
-    difficulty_support = design.get("difficulty_support", {})
+    question_strategy = design.get("question_strategy", {})
+    engagement_patterns = design.get("engagement_patterns", [])
+    feedback_mechanisms = design.get("feedback_mechanisms", [])
 
     # 教学内容（来自 content_node）
     practice_design = content.get("practice_design", {
@@ -112,10 +119,10 @@ def _integrate_outputs(
         "lesson_overview": lesson_overview,
         "teaching_objectives": teaching_objectives,
         "teaching_process": teaching_process,
-        "interactive_design": interactive_design,
-        "question_chain": question_chain,
-        "group_activities": group_activities,
-        "difficulty_support": difficulty_support,
+        "interaction_design": interactive_design,
+        "question_strategy": question_strategy,
+        "engagement_patterns": engagement_patterns,
+        "feedback_mechanisms": feedback_mechanisms,
         "practice_design": practice_design,
         "blackboard_design": blackboard_design,
         "homework": homework,
@@ -145,7 +152,7 @@ def _generate_statistics(output: Dict[str, Any]) -> Dict[str, Any]:
     total_questions = basic_count + intermediate_count + advanced_count
 
     # 互动统计
-    interactive_count = len(output.get("interactive_design", []))
+    interactive_count = len(output.get("interaction_design", []))
     question_count = len(output.get("question_chain", []))
 
     # 作业统计
@@ -166,16 +173,20 @@ def _generate_statistics(output: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
-    """处理错误情况"""
+def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
+    """
+    处理错误情况
+
+    返回 partial update，包含默认 final_output 和递增的 error_count
+    """
     logger.error(f"formatter_node 错误: {error_msg}")
 
     # 创建最小化的默认输出
     default_output = {
         "error": error_msg,
         "metadata": {
-            "topic": state["topic"],
-            "grade": state["grade"],
+            "topic": state.topic,
+            "grade": state.grade,
             "generated_at": datetime.datetime.now().isoformat(),
             "version": "2.0",
             "total_duration": "未知"
@@ -187,7 +198,7 @@ def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
             "attitude": []
         },
         "teaching_process": [],
-        "interactive_design": [],
+        "interaction_design": [],
         "question_chain": [],
         "practice_design": {
             "basic": [],
@@ -214,16 +225,11 @@ def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
         }
     }
 
-    new_state = {
-        **state,
+    # 返回 partial update，只包含 final_output 和 error_count
+    return {
         "final_output": default_output,
-        "error_count": state["error_count"] + 1
+        "error_count": state.error_count + 1
     }
-
-    if new_state["error_count"] >= state["max_retries"]:
-        logger.critical("达到最大重试次数，工作流将终止")
-
-    return new_state
 
 
 # 注册节点到工作流

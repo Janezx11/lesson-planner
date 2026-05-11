@@ -3,16 +3,18 @@ Teaching State 定义和类型系统
 
 这个模块定义了 AI Teaching Copilot 的 State 结构，
 用于在 LangGraph 节点之间传递数据。
+
+重构说明：
+- 从 TypedDict 升级为 Pydantic BaseModel
+- 增加字段类型约束和默认值
+- 支持 LangGraph 的 partial update 模式
 """
 
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
 
 
-# Pydantic models are not used in this implementation
-# All data is handled as plain dictionaries
-
-
-class TeachingState(TypedDict):
+class TeachingState(BaseModel):
     """
     AI Teaching Copilot 的核心状态定义
 
@@ -22,17 +24,36 @@ class TeachingState(TypedDict):
     - design_node: design
     - content_node: content
     - formatter_node: final_output
+
+    重构后：
+    - 使用 Pydantic BaseModel 提供类型验证
+    - 所有字段都有默认值
+    - 支持 partial update 模式
     """
-    topic: str                    # 输入的教学主题
-    grade: str                   # 年级信息
-    provider: str                # LLM 提供商 (claude, qwen, longcat)
-    plan: dict                   # 教学计划 (由 planner_node 生成)
-    knowledge: dict             # 知识结构 (由 knowledge_node 生成)
-    design: dict                # 教学设计 (由 design_node 生成)
-    content: dict               # 教学内容 (由 content_node 生成)
-    final_output: dict          # 最终输出 (由 formatter_node 生成)
-    error_count: int            # 错误计数，用于重试机制
-    max_retries: int            # 最大重试次数
+    # 输入字段（必填）
+    topic: str = Field(description="教学主题")
+    grade: str = Field(description="年级信息")
+
+    # 配置字段
+    provider: str = Field(default="claude", description="LLM 提供商 (claude, qwen, longcat)")
+
+    # 节点输出字段（由各节点填充）
+    plan: Dict[str, Any] = Field(default_factory=dict, description="教学计划 (由 planner_node 生成)")
+    knowledge: Dict[str, Any] = Field(default_factory=dict, description="知识结构 (由 knowledge_node 生成)")
+    design: Dict[str, Any] = Field(default_factory=dict, description="教学设计 (由 design_node 生成)")
+    content: Dict[str, Any] = Field(default_factory=dict, description="教学内容 (由 content_node 生成)")
+    final_output: Dict[str, Any] = Field(default_factory=dict, description="最终输出 (由 formatter_node 生成)")
+
+    # 控制字段
+    error_count: int = Field(default=0, description="错误计数，用于重试机制")
+    max_retries: int = Field(default=3, description="最大重试次数")
+
+    class Config:
+        """Pydantic 配置"""
+        # 允许任意类型（支持 dict 嵌套）
+        arbitrary_types_allowed = True
+        # 使用 enum 值
+        use_enum_values = True
 
 
 # 默认状态初始化函数
@@ -41,7 +62,7 @@ def create_initial_state(topic: str, grade: str, provider: str = "claude") -> Te
     return TeachingState(
         topic=topic,
         grade=grade,
-        provider=provider,  # 确保 provider 字段被正确设置
+        provider=provider,
         plan={},
         knowledge={},
         design={},
@@ -68,3 +89,33 @@ class WorkflowEdges:
     DESIGN_TO_CONTENT = f"{NodeNames.DESIGN} -> {NodeNames.CONTENT}"
     CONTENT_TO_FORMATTER = f"{NodeNames.CONTENT} -> {NodeNames.FORMATTER}"
     FORMATTER_END = f"{NodeNames.FORMATTER} -> END"
+
+
+# 节点输出类型定义（用于类型提示）
+class PlannerOutput(BaseModel):
+    """planner_node 的输出"""
+    plan: Dict[str, Any] = Field(description="教学计划")
+
+
+class KnowledgeOutput(BaseModel):
+    """knowledge_node 的输出"""
+    knowledge: Dict[str, Any] = Field(description="知识结构")
+
+
+class DesignOutput(BaseModel):
+    """design_node 的输出"""
+    design: Dict[str, Any] = Field(description="教学设计")
+
+
+class ContentOutput(BaseModel):
+    """content_node 的输出"""
+    content: Dict[str, Any] = Field(description="教学内容")
+
+
+class FormatterOutput(BaseModel):
+    """formatter_node 的输出"""
+    final_output: Dict[str, Any] = Field(description="最终输出")
+
+
+# 所有节点输出类型的联合（用于类型提示）
+NodeOutput = Dict[str, Any]  # partial update dict

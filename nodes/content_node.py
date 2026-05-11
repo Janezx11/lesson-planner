@@ -10,6 +10,11 @@ content_node - 教学内容生成节点
 
 输入：planner_node 输出（教学骨架）+ design_node 输出（互动设计）
 输出：教学内容
+
+重构说明：
+- 改为返回 partial update（只返回 content 字段）
+- 不再返回完整 state
+- 由 workflow/builder 层负责 state merge
 """
 
 import json
@@ -126,16 +131,20 @@ def validate_content_output(data: Dict[str, Any]) -> tuple[bool, List[str]]:
     return len(issues) == 0, issues
 
 
-def content_node(state: TeachingState) -> TeachingState:
+def content_node(state: TeachingState) -> Dict[str, Any]:
     """
     教学内容生成节点
 
     根据教学计划骨架和互动设计，生成具体的教学内容
+
+    重构后返回 partial update:
+    - 成功时: {"content": content_data}
+    - 失败时: {"content": default_content, "error_count": state.error_count + 1}
     """
-    topic = state["topic"]
-    grade = state["grade"]
-    plan = state.get("plan", {})
-    design = state.get("design", {})
+    topic = state.topic
+    grade = state.grade
+    plan = state.plan
+    design = state.design
 
     logger.info(f"开始生成教学内容: 主题={topic}, 年级={grade}")
 
@@ -157,7 +166,7 @@ def content_node(state: TeachingState) -> TeachingState:
 
     try:
         # 调用 LLM API
-        llm_client = get_llm_for_state(state)
+        llm_client = get_llm_for_state(state.model_dump())
 
         # 重试机制
         max_retries = 3
@@ -178,10 +187,8 @@ def content_node(state: TeachingState) -> TeachingState:
 
                 if is_valid:
                     logger.info("成功生成教学内容")
-                    return {
-                        **state,
-                        "content": content_data
-                    }
+                    # 返回 partial update，只包含 content 字段
+                    return {"content": content_data}
                 else:
                     logger.warning(f"输出验证未通过 (尝试 {attempt + 1}/{max_retries}):")
                     for issue in issues:
@@ -190,10 +197,7 @@ def content_node(state: TeachingState) -> TeachingState:
                     # 如果是最后一次尝试，使用当前结果
                     if attempt == max_retries - 1:
                         logger.warning("达到最大重试次数，使用当前结果")
-                        return {
-                            **state,
-                            "content": content_data
-                        }
+                        return {"content": content_data}
 
             except Exception as e:
                 logger.warning(f"第 {attempt + 1} 次尝试失败: {e}")
@@ -203,10 +207,7 @@ def content_node(state: TeachingState) -> TeachingState:
         # 如果所有尝试都失败，创建默认值
         logger.warning("所有重试都失败，使用默认教学内容")
         content_data = _create_default_content()
-        return {
-            **state,
-            "content": content_data
-        }
+        return {"content": content_data}
 
     except Exception as e:
         logger.error(f"content_node 执行失败: {e}")
@@ -410,23 +411,22 @@ def _create_default_content() -> Dict[str, Any]:
     }
 
 
-def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
-    """处理错误情况"""
+def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
+    """
+    处理错误情况
+
+    返回 partial update，包含默认 content 和递增的 error_count
+    """
     logger.error(f"content_node 错误: {error_msg}")
 
     default_content = _create_default_content()
     default_content["error"] = error_msg
 
-    new_state = {
-        **state,
+    # 返回 partial update，只包含 content 和 error_count
+    return {
         "content": default_content,
-        "error_count": state["error_count"] + 1
+        "error_count": state.error_count + 1
     }
-
-    if new_state["error_count"] >= state["max_retries"]:
-        logger.critical("达到最大重试次数，工作流将终止")
-
-    return new_state
 
 
 # 注册节点到工作流

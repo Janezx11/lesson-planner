@@ -2,6 +2,11 @@
 LangGraph 工作流构建器
 
 负责创建和管理 AI Teaching Copilot 的 LangGraph 工作流。
+
+重构说明：
+- 使用 Pydantic BaseModel 作为 state 类型
+- 支持 partial update 模式（节点只返回修改的字段）
+- LangGraph 自动负责 state merge
 """
 
 import logging
@@ -32,6 +37,11 @@ class WorkflowBuilder:
     - 配置工作流边
     - 编译和返回可执行的工作流
     - 支持多模型提供商
+
+    重构后：
+    - 使用 Pydantic BaseModel 作为 state 类型
+    - 支持 partial update 模式
+    - 节点只返回修改的字段，LangGraph 自动合并
     """
 
     def __init__(self, default_provider: str = "claude"):
@@ -61,6 +71,8 @@ class WorkflowBuilder:
         logger.info(f"开始构建 LangGraph 工作流 (提供商: {self.llm_provider})")
 
         # 创建工作流图
+        # 使用 Pydantic BaseModel 作为 state 类型
+        # 支持 partial update：节点返回 dict，LangGraph 自动合并到 state
         workflow = StateGraph(TeachingState)
 
         # 注册所有节点

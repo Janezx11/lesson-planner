@@ -3,32 +3,34 @@ knowledge_node - 知识结构分析节点
 
 这个节点负责分析教学主题的知识结构，
 识别核心概念、易错点和前置知识。
+
+重构说明：
+- 改为返回 partial update（只返回 knowledge 字段）
+- 不再返回完整 state
+- 由 workflow/builder 层负责 state merge
 """
 
 import json
-from typing import Dict, Any, TypedDict
-from langgraph.graph import StateGraph
+from typing import Dict, Any, List
 from utils.parser import safe_parse_json, validate_required_fields
 from utils.logger import get_logger
-from graph.state import TeachingState, NodeNames
+from graph.state import TeachingState
 from llm.factory import get_llm_for_state
 
 logger = get_logger(__name__)
 
 
-def knowledge_node(state: TeachingState) -> TeachingState:
+def knowledge_node(state: TeachingState) -> Dict[str, Any]:
     """
     知识结构分析节点
 
-    Args:
-        state: 当前状态
-
-    Returns:
-        更新后的状态（包含 knowledge 字段）
+    重构后返回 partial update:
+    - 成功时: {"knowledge": knowledge_data}
+    - 失败时: {"knowledge": default_knowledge, "error_count": state.error_count + 1}
     """
-    topic = state["topic"]
-    grade = state["grade"]
-    plan = state.get("plan", {})
+    topic = state.topic
+    grade = state.grade
+    plan = state.plan
 
     logger.info(f"开始分析知识结构: 主题={topic}, 年级={grade}")
 
@@ -117,7 +119,7 @@ def knowledge_node(state: TeachingState) -> TeachingState:
 
     try:
         # 调用 LLM API（支持多提供商）
-        llm_client = get_llm_for_state(state)
+        llm_client = get_llm_for_state(state.model_dump())
 
         # 重试机制
         max_retries = 3
@@ -133,11 +135,8 @@ def knowledge_node(state: TeachingState) -> TeachingState:
                 required_fields = ["core_concepts", "common_mistakes", "prerequisite_knowledge"]
                 if validate_required_fields(knowledge_data, required_fields):
                     logger.info("成功生成知识结构分析")
-                    # Return new state with provider preserved
-                    return {
-                        **state,  # Preserve all existing fields
-                        "knowledge": knowledge_data
-                    }
+                    # 返回 partial update，只包含 knowledge 字段
+                    return {"knowledge": knowledge_data}
 
                 logger.warning(f"缺少必需字段，尝试第 {attempt + 1} 次重试")
 
@@ -158,19 +157,20 @@ def knowledge_node(state: TeachingState) -> TeachingState:
             "learning_difficulties": ["理解难点"],
             "critical_thinking_points": ["思辨要点"]
         }
-        # Return new state with provider preserved
-        return {
-            **state,  # Preserve all existing fields
-            "knowledge": knowledge_data
-        }
+        # 返回 partial update，只包含 knowledge 字段
+        return {"knowledge": knowledge_data}
 
     except Exception as e:
         logger.error(f"knowledge_node 执行失败: {e}")
         return _handle_error(state, str(e))
 
 
-def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
-    """处理错误情况"""
+def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
+    """
+    处理错误情况
+
+    返回 partial update，包含默认 knowledge 和递增的 error_count
+    """
     logger.error(f"knowledge_node 错误: {error_msg}")
 
     # 创建默认的知识结构
@@ -189,18 +189,11 @@ def _handle_error(state: TeachingState, error_msg: str) -> TeachingState:
         "critical_thinking_points": []
     }
 
-    # Return new state with provider preserved and error count incremented
-    new_state = {
-        **state,  # Preserve all existing fields
+    # 返回 partial update，只包含 knowledge 和 error_count
+    return {
         "knowledge": default_knowledge,
-        "error_count": state["error_count"] + 1
+        "error_count": state.error_count + 1
     }
-
-    # 检查是否达到最大重试次数
-    if new_state["error_count"] >= state["max_retries"]:
-        logger.critical("达到最大重试次数，工作流将终止")
-
-    return new_state
 
 
 # 注册节点到工作流

@@ -7,6 +7,11 @@ nodes - LangGraph 工作流节点模块
 - design_node: 通用教学行为（学科无关）
 - content_node: 学科内容生成
 - formatter_node: 最终整合
+
+重构说明：
+- 所有节点改为返回 partial update（只返回修改的字段）
+- 不再返回完整 state
+- 由 workflow/builder 层负责 state merge
 """
 
 from .planner_node import create_planner_node
