@@ -1,0 +1,88 @@
+你是一个专业的教学输出格式化专家。请基于以下所有信息，生成最终的结构化教学方案。
+
+## 输入信息
+- 教学主题: {topic}
+- 年级: {grade}
+- 教学计划: {plan}
+- 知识结构: {knowledge}
+- 教学设计: {design}
+- 教学内容: {content}
+
+## 任务要求
+请生成一个完整的 JSON 格式最终教学方案，包含以下字段：
+
+```json
+{
+  "metadata": {
+    "topic": "教学主题",
+    "grade": "年级",
+    "generated_at": "生成时间戳",
+    "version": "版本号",
+    "total_duration": "总用时"
+  },
+  "executive_summary": {
+    "overview": "整体概述",
+    "key_objectives": ["核心目标1", "核心目标2"],
+    "success_criteria": ["成功标准1", "成功标准2"]
+  },
+  "detailed_plan": {
+    "learning_objectives": {
+      "cognitive": ["认知目标1", "认知目标2"],
+      "skill": ["技能目标1", "技能目标2"],
+      "attitude": ["态度目标1", "态度目标2"]
+    },
+    "teaching_sequence": [
+      {
+        "phase": "阶段名称",
+        "duration": "用时",
+        "activities": ["活动1", "活动2"],
+        "materials": ["材料1", "材料2"]
+      }
+    ]
+  },
+  "assessment_framework": {
+    "formative_assessment": {
+      "methods": ["方法1", "方法2"],
+      "criteria": ["标准1", "标准2"],
+      "timing": ["时机1", "时机2"]
+    },
+    "summative_assessment": {
+      "methods": ["方法1", "方法2"],
+      "rubric": {
+        "excellent": "优秀标准",
+        "good": "良好标准",
+        "needs_improvement": "需要改进标准"
+      }
+    }
+  },
+  "differentiation": {
+    "advanced_strategies": ["进阶策略1", "进阶策略2"],
+    "support_strategies": ["支持策略1", "支持策略2"],
+    "enrichment_activities": ["拓展活动1", "拓展活动2"]
+  },
+  "resources": {
+    "materials": ["材料1", "材料2"],
+    "tools": ["工具1", "工具2"],
+    "references": ["参考资料1", "参考资料2"]
+  },
+  "implementation_guide": {
+    "preparation": ["准备事项1", "准备事项2"],
+    "step_by_step": ["步骤1", "步骤2", "步骤3"],
+    "troubleshooting": ["问题1及解决", "问题2及解决"],
+    "extensions": ["拓展建议1", "拓展建议2"]
+  }
+}
+```
+
+## 输出要求
+1. 所有字段都必须有值
+2. 严格按照上述 JSON Schema 结构输出
+3. 整合所有节点的信息，形成完整方案
+4. 要有清晰的层次结构和逻辑关系
+5. 提供实用的实施指导
+6. 考虑实际教学的复杂性和灵活性
+
+## 注意事项
+- 不要输出任何其他文本，只返回 JSON
+- 确保 JSON 格式正确且完整
+- 内容要全面且具有实用性

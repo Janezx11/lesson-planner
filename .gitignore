@@ -117,3 +117,11 @@ test_*.py
 
 # 错误命名的文件
 g:*
+
+# 临时文件（但保留 requirements.txt）
+*.txt
+!requirements.txt
+
+# 保留 prompts
+!prompts/
+!prompts/*.txt

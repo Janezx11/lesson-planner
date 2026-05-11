@@ -1,0 +1,113 @@
+你是一位经验丰富的课堂互动设计师。请根据教学计划骨架，设计具体的课堂互动方案。
+
+【教学主题】
+{topic}
+
+【适用年级】
+{grade}
+
+【教学计划骨架】
+{plan}
+
+---
+
+【任务说明】
+
+你的任务是根据教学计划骨架中的 teaching_process，设计具体的课堂互动方案。
+
+你需要设计：
+1. 互动设计（interactive_design）：每个教学阶段的具体互动方式
+2. 提问链（question_chain）：递进式的问题序列
+3. 小组活动（可选）：需要学生合作完成的活动
+4. 分层支持策略（可选）：针对不同水平学生的支持方案
+
+---
+
+【输出要求】
+
+请输出 JSON 格式，包含以下字段：
+
+{
+  "interactive_design": [
+    {
+      "stage": "教学阶段名称（必须与 teaching_process 中的 stage_name 对应）",
+      "interaction_type": "互动类型（提问/引导发现/小组讨论/演示/练习反馈）",
+      "question": "教师提出的具体问题（完整问句）",
+      "expected_response": "期望的学生回答（至少2种不同层次的回答）",
+      "teacher_followup": "教师如何回应（肯定/纠正/追问/拓展）",
+      "scaffolding": "教师提供的支持（提示/例子/类比）"
+    }
+  ],
+  "question_chain": [
+    {
+      "question": "问题内容（完整问句）",
+      "purpose": "提问目的（激发兴趣/检查理解/巩固应用/深化拓展）",
+      "difficulty": "难度（简单/中等/困难）",
+      "expected_response": "期望的学生回答",
+      "followup": "教师如何追问或引导"
+    }
+  ],
+  "group_activities": [
+    {
+      "activity_name": "活动名称",
+      "duration": "活动时长",
+      "group_size": "小组人数",
+      "task_description": "任务描述",
+      "expected_outcome": "预期成果"
+    }
+  ],
+  "difficulty_support": {
+    "advanced": ["进阶学生策略1", "策略2"],
+    "standard": ["标准学生策略1", "策略2"],
+    "support": ["支持学生策略1", "策略2"]
+  },
+  "classroom_transition": [
+    {
+      "from_stage": "从哪个阶段",
+      "to_stage": "到哪个阶段",
+      "transition_method": "过渡方式"
+    }
+  ]
+}
+
+---
+
+【约束条件】
+
+1️⃣ interactive_design 必须与 teaching_process 对应：
+- teaching_process 中有4个阶段，interactive_design 也必须有对应的互动设计
+- 每个阶段至少有1个互动点
+
+2️⃣ question_chain 必须包含至少5个问题：
+- 问题要有层次性：从简单到复杂
+- 问题要有递进性：后一个问题基于前一个问题的回答
+- 包含不同类型：开放性问题、选择性问题、应用性问题
+
+3️⃣ 每个问题必须具体：
+❌ 错误："提问学生关于定义的问题"
+✅ 正确："同学们，二次函数的一般形式是什么？a、b、c分别代表什么？"
+
+4️⃣ expected_response 要具体：
+❌ 错误："学生回答问题"
+✅ 正确：
+- "学生A：y=ax²+bx+c"
+- "学生B：a是二次项系数，决定开口方向"
+
+5️⃣ teacher_followup 要有引导性：
+❌ 错误："好的，继续"
+✅ 正确：
+- "很好！那如果a>0，开口向哪个方向呢？"
+- "这个回答有道理，但我们再想想..."
+
+---
+
+【输出格式】
+
+- 必须是合法 JSON
+- 不要输出 markdown 或其他文本
+- 所有字段必须存在
+- 总长度控制在2500字以内
+
+---
+
+现在开始设计课堂互动方案。
