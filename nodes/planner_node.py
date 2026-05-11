@@ -27,7 +27,7 @@ from pydantic import ValidationError
 from utils.logger import get_logger
 from graph.state import TeachingState
 from llm.factory import get_llm_for_state
-from models.planner import PlannerOutput, TeachingStage
+from models.cognitive import CognitiveFlow, CognitiveStage
 
 logger = get_logger(__name__)
 
@@ -57,7 +57,7 @@ TEACHING_STRATEGIES = [
 ]
 
 
-def validate_planner_output(output: PlannerOutput) -> List[str]:
+def validate_planner_output(output: CognitiveFlow) -> List[str]:
     """
     验证 PlannerOutput 的业务规则
 
@@ -108,9 +108,9 @@ def validate_planner_output(output: PlannerOutput) -> List[str]:
     return issues
 
 
-def create_default_planner_output() -> PlannerOutput:
+def create_default_planner_output() -> CognitiveFlow:
     """创建默认的认知推进路线（错误时使用）"""
-    return PlannerOutput(
+    return CognitiveFlow(
         lesson_overview="认知路线设计失败，请重试",
         lesson_duration="45分钟",
         cognitive_progression=[
@@ -120,7 +120,7 @@ def create_default_planner_output() -> PlannerOutput:
             "最终状态：能够应用所学知识"
         ],
         teaching_process=[
-            TeachingStage(
+            CognitiveStage(
                 stage_name="认知冲突：为什么需要学习这个",
                 cognitive_state="学生对主题有初步认识，但缺乏深入理解",
                 cognitive_goal="激发学习兴趣，建立认知冲突",
@@ -130,7 +130,7 @@ def create_default_planner_output() -> PlannerOutput:
                 student_activity=["观察案例，产生疑问", "尝试回答问题"],
                 expected_cognitive_change="从'认为简单'到'意识到复杂'"
             ),
-            TeachingStage(
+            CognitiveStage(
                 stage_name="规律发现：从现象中找规律",
                 cognitive_state="学生产生了认知冲突，想要寻找答案",
                 cognitive_goal="引导学生发现规律",
@@ -140,7 +140,7 @@ def create_default_planner_output() -> PlannerOutput:
                 student_activity=["分析案例，寻找共同点", "尝试总结规律"],
                 expected_cognitive_change="从'困惑'到'初步理解'"
             ),
-            TeachingStage(
+            CognitiveStage(
                 stage_name="模型建构：建立抽象模型",
                 cognitive_state="学生发现了规律，需要建立系统认知",
                 cognitive_goal="帮助学生建立抽象模型",
@@ -191,7 +191,7 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
                 # 使用新的 v2 接口，自动从 PlannerOutput 生成 schema
                 planner_output = llm_client.generate_structured_output_v2(
                     prompt=prompt,
-                    output_model=PlannerOutput,
+                    output_model=CognitiveFlow,
                     system_prompt=_get_system_prompt()
                 )
 

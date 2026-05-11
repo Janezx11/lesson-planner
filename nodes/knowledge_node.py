@@ -6,7 +6,7 @@ knowledge_node - 知识结构分析节点
 
 重构说明：
 - 删除内联手写 JSON Schema dict
-- 使用 Pydantic KnowledgeOutput 作为结构化输出
+- 使用 Pydantic KnowledgeStructure 作为结构化输出
 - 使用 generate_structured_output_v2() 自动校验
 """
 
@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from utils.logger import get_logger
 from graph.state import TeachingState
 from llm.factory import get_llm_for_state
-from models.knowledge import KnowledgeOutput
+from models.cognitive import KnowledgeStructure
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,7 @@ def knowledge_node(state: TeachingState) -> Dict[str, Any]:
     使用 Pydantic Model 作为结构化输出，
     自动校验类型和必填字段。
 
-    返回 partial update: {"knowledge": KnowledgeOutput}
+    返回 partial update: {"knowledge": KnowledgeStructure}
     """
     topic = state.topic
     grade = state.grade
@@ -59,10 +59,10 @@ def knowledge_node(state: TeachingState) -> Dict[str, Any]:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 使用新的 v2 接口，自动从 KnowledgeOutput 生成 schema
+                # 使用新的 v2 接口，自动从 KnowledgeStructure 生成 schema
                 knowledge_output = llm_client.generate_structured_output_v2(
                     prompt=prompt,
-                    output_model=KnowledgeOutput,
+                    output_model=KnowledgeStructure,
                     system_prompt="你是一个专业的学科知识分析师，擅长深入剖析知识结构和学习难点。"
                 )
 
@@ -93,14 +93,14 @@ def knowledge_node(state: TeachingState) -> Dict[str, Any]:
         return _handle_error(state, str(e))
 
 
-def _create_default_knowledge() -> KnowledgeOutput:
+def _create_default_knowledge() -> KnowledgeStructure:
     """创建默认的知识结构"""
-    from models.knowledge import (
+    from models.cognitive import (
         CoreConcept, CommonMistake, PrerequisiteKnowledge,
         KeyInsight, ConceptualHierarchy
     )
 
-    return KnowledgeOutput(
+    return KnowledgeStructure(
         core_concepts=[
             CoreConcept(concept="核心概念", definition="基础定义", importance="高")
         ],

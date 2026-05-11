@@ -1,8 +1,18 @@
-# AI Teaching Copilot - 教学认知Agent
+# AI Teaching Copilot - 教学认知编译系统
 
-> 从"教案生成器"到"教学认知Agent"的架构升级
+> 从"教案生成器"到"教学认知编译系统"的架构升级
 
-一个基于 LangGraph 的 AI 教学系统，采用**认知驱动**的教学设计理念，而非传统的"情境导入→新课讲解→课堂练习→总结提升"模式。
+一个基于 LangGraph 的 AI 教学系统，采用**认知驱动**的教学设计理念，通过 **Cognitive IR + Rendering Layer** 架构将 AI 内部认知结构转换为教师可读的教案。
+
+## 核心架构
+
+```
+Teaching Cognitive Layer (AI 内部认知)
+        ↓
+Rendering Layer (确定性转换，不调用 LLM)
+        ↓
+Teacher-facing Lesson Plan (教师可读教案)
+```
 
 ## 核心理念
 
@@ -34,26 +44,30 @@
 ### 多节点协作工作流
 
 ```
-planner_node (认知路线设计)
+planner_node (认知路线设计) → CognitiveFlow
     ↓
-knowledge_node (知识结构分析)
+knowledge_node (知识结构分析) → KnowledgeStructure
     ↓
-design_node (通用教学行为) ← 学科无关
+design_node (通用教学行为) → InteractionDesign ← 学科无关
     ↓
-content_node (学科内容填充) ← 具体知识
+content_node (学科内容填充) → ContentOutput ← 具体知识
     ↓
-formatter_node (最终整合)
+formatter_node (调用 Renderer Pipeline)
+    ├── render_teacher_lesson_plan() → TeacherLessonPlan
+    └── render_markdown() → Markdown
+    ↓
+两层输出：Cognitive IR + TeacherLessonPlan + Markdown
 ```
 
 ### 节点职责
 
-| 节点 | 职责 | 输入 | 输出 |
+| 节点 | 职责 | 输入 | 输出 (Cognitive IR) |
 |------|------|------|------|
-| **planner_node** | 设计认知推进路线 | 主题、年级 | 认知阶段、认知递进路径 |
-| **knowledge_node** | 分析知识结构 | 主题、年级 | 核心概念、易错点、前置知识 |
-| **design_node** | 设计通用教学行为 | 认知路线 | 互动模式、提问策略、反馈机制 |
-| **content_node** | 生成学科内容 | 认知路线 + 教学行为 | 练习题、板书、作业、教师话术 |
-| **formatter_node** | 整合最终输出 | 所有节点输出 | 完整教学方案 |
+| **planner_node** | 设计认知推进路线 | 主题、年级 | `CognitiveFlow` - 认知阶段、认知递进路径 |
+| **knowledge_node** | 分析知识结构 | 主题、年级 | `KnowledgeStructure` - 核心概念、易错点、前置知识 |
+| **design_node** | 设计通用教学行为 | 认知路线 | `InteractionDesign` - 互动模式、提问策略 |
+| **content_node** | 生成学科内容 | 认知路线 + 教学行为 | `ContentOutput` - 练习题、板书、作业 |
+| **formatter_node** | 整合最终输出 | 所有节点输出 | `TeacherLessonPlan` + Markdown（教师可读） |
 
 ### 状态管理（LangGraph 标准模式）
 
@@ -90,11 +104,21 @@ class TeachingState(BaseModel):
 # 节点返回格式
 def planner_node(state: TeachingState) -> Dict[str, Any]:
     # ... 业务逻辑 ...
-    return {"plan": plan_data}  # 只返回 plan 字段
+    cognitive_flow = llm_client.generate_structured_output_v2(
+        prompt=prompt,
+        output_model=CognitiveFlow,  # Cognitive IR 模型
+        system_prompt=system_prompt
+    )
+    return {"plan": cognitive_flow.model_dump()}  # 只返回 plan 字段
 
 def design_node(state: TeachingState) -> Dict[str, Any]:
     # ... 业务逻辑 ...
-    return {"design": design_data}  # 只返回 design 字段
+    interaction_design = llm_client.generate_structured_output_v2(
+        prompt=prompt,
+        output_model=InteractionDesign,  # Cognitive IR 模型
+        system_prompt=system_prompt
+    )
+    return {"design": interaction_design.model_dump()}  # 只返回 design 字段
 ```
 
 #### 错误处理标准化
@@ -107,50 +131,84 @@ def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
     }
 ```
 
-### Pydantic 强类型模型
+### Pydantic 强类型模型（分层架构）
 
-所有节点输出都使用 Pydantic Model 定义，自动保证类型安全：
+所有模型按职责分层，Cognitive IR 模型用于 AI 内部认知，Teacher 模型面向教师：
+
+#### Cognitive IR 模型（AI 内部认知结构）
 
 ```python
-# models/planner.py
-class TeachingStage(BaseModel):
-    stage_name: str = Field(description="阶段名称")
+# models/cognitive/cognitive_flow.py
+class CognitiveStage(BaseModel):
+    stage_name: str = Field(description="阶段名称，格式：认知状态：认知目标")
+    cognitive_state: str = Field(description="学生当前认知状态")
+    cognitive_goal: str = Field(description="本阶段认知目标")
     teaching_strategy: str = Field(description="教学策略")
     teacher_activity: List[str] = Field(default_factory=list)
     student_activity: List[str] = Field(default_factory=list)
+    expected_cognitive_change: str = Field(description="预期认知变化")
 
-class PlannerOutput(BaseModel):
+class CognitiveFlow(BaseModel):
     lesson_overview: str = Field(description="认知主线")
+    lesson_duration: str = Field(default="45分钟")
     cognitive_progression: List[str] = Field(default_factory=list)
-    teaching_process: List[TeachingStage] = Field(default_factory=list)
+    stages: List[CognitiveStage] = Field(default_factory=list)
 ```
 
 ```python
-# models/design.py
+# models/cognitive/interaction_design.py
 class TeacherBehavior(BaseModel):
     action: str = Field(description="具体行动")
     purpose: str = Field(description="行动目的")
 
-class InteractionDesign(BaseModel):
+class InteractionPoint(BaseModel):
     stage_name: str = Field(description="阶段名称")
     interaction_type: str = Field(description="互动类型")
     teacher_behavior: TeacherBehavior = Field(description="教师行为")
     student_behavior: StudentBehavior = Field(description="学生行为")
+
+class InteractionDesign(BaseModel):
+    interaction_points: List[InteractionPoint] = Field(default_factory=list)
+    question_strategy: QuestionStrategy = Field(description="提问策略")
+```
+
+#### Teacher-facing 模型（教师可读教案）
+
+```python
+# models/teacher/teacher_lesson_plan.py
+class LessonHeader(BaseModel):
+    topic: str
+    grade: str
+    duration: str = "45分钟"
+    teaching_objectives: List[str] = []
+    key_points: List[str] = []
+    difficult_points: List[str] = []
+
+class TeacherLessonPlan(BaseModel):
+    header: LessonHeader
+    sections: List[LessonSection] = []
+    practice: Optional[PracticeSection] = None
+    homework: List[HomeworkSection] = []
+    blackboard: Optional[BlackboardDesign] = None
+    summary: str = ""
 ```
 
 ### 核心字段
 
-#### planner_node 输出 (PlannerOutput)
+#### Cognitive IR 层（AI 内部认知结构）
+
+**planner_node 输出 (CognitiveFlow)**
 
 ```json
 {
   "lesson_overview": "认知主线描述",
+  "lesson_duration": "45分钟",
   "cognitive_progression": [
     "学生初始状态：...",
     "阶段1后：...",
     "最终状态：..."
   ],
-  "teaching_process": [
+  "stages": [
     {
       "stage_name": "认知冲突：为什么网络通信不能乱来",
       "cognitive_state": "学生当前认知状态",
@@ -164,11 +222,11 @@ class InteractionDesign(BaseModel):
 }
 ```
 
-#### design_node 输出 (DesignOutput)
+**design_node 输出 (InteractionDesign)**
 
 ```json
 {
-  "interaction_design": [
+  "interaction_points": [
     {
       "stage_name": "认知冲突阶段",
       "interaction_type": "问题驱动",
@@ -187,6 +245,54 @@ class InteractionDesign(BaseModel):
   "question_strategy": {
     "approach": "递进式提问",
     "progression": "从具体到抽象"
+  }
+}
+```
+
+#### Teacher-facing 层（教师可读教案）
+
+**formatter_node 输出 (两层结构)**
+
+```json
+{
+  "metadata": {
+    "topic": "网络分层",
+    "grade": "职高",
+    "generated_at": "2026-05-08T16:00:00Z",
+    "version": "3.0"
+  },
+  "teacher_lesson_plan": {
+    "header": {
+      "topic": "网络分层",
+      "grade": "职高",
+      "duration": "45分钟",
+      "teaching_objectives": ["理解网络分层的必要性"],
+      "key_points": ["各层功能"],
+      "difficult_points": ["抽象模型的理解"]
+    },
+    "sections": [
+      {
+        "title": "为什么网络通信不能乱来",
+        "teacher_activity": "播放混乱动画；展示抓包截图",
+        "student_activity": "观察动画；尝试回答",
+        "design_intent": "从认为简单到意识到需要规则",
+        "duration": "10分钟"
+      }
+    ],
+    "practice": { "questions": [...], "answers": [...] },
+    "homework": [...],
+    "blackboard": { "layout": "...", "main_content": [...] },
+    "summary": "通过本节课学习，..."
+  },
+  "markdown": "# 网络分层 教案\n\n...",
+  "cognitive_ir": {
+    "cognitive_flow": {...},
+    "knowledge_structure": {...},
+    "interaction_design": {...}
+  },
+  "statistics": {
+    "total_questions": 8,
+    "homework_count": 2
   }
 }
 ```
@@ -243,20 +349,31 @@ lesson-planner/
 │   ├── __init__.py           # 模块导出
 │   ├── state.py              # Pydantic BaseModel 状态定义
 │   └── builder.py            # LangGraph 工作流构建器
-├── models/                   # Pydantic 强类型模型（新增）
-│   ├── __init__.py           # 模块导出
-│   ├── planner.py            # planner_node 输出模型
-│   ├── knowledge.py          # knowledge_node 输出模型
-│   ├── design.py             # design_node 输出模型
-│   ├── content.py            # content_node 输出模型
-│   └── final.py              # formatter_node 输出模型
+├── models/
+│   ├── __init__.py           # 模块导出（分层导出）
+│   ├── cognitive/            # Cognitive IR 模型（AI 内部认知结构）
+│   │   ├── __init__.py
+│   │   ├── cognitive_flow.py # 认知流程模型（planner_node 输出）
+│   │   ├── knowledge_structure.py  # 知识结构模型（knowledge_node 输出）
+│   │   ├── interaction_design.py   # 互动设计模型（design_node 输出）
+│   │   ├── practice_design.py      # 练习设计模型（content_node 输出）
+│   │   └── misconception_model.py  # 易错点模型（content_node 输出）
+│   ├── teacher/              # 教师可读模型（面向教师的教案格式）
+│   │   ├── __init__.py
+│   │   ├── teacher_lesson_plan.py  # 教案主模型 + 教案头部
+│   │   └── lesson_section.py       # 教学环节、练习、作业模型
+│   └── content.py            # content_node 输出模型（兼容层）
+├── renderers/                # 渲染层（确定性转换，不调用 LLM）
+│   ├── __init__.py
+│   ├── teacher_renderer.py   # 核心渲染器：Cognitive IR → TeacherLessonPlan
+│   └── markdown_renderer.py  # Markdown 渲染器：TeacherLessonPlan → Markdown
 ├── nodes/
 │   ├── __init__.py           # 模块导出
-│   ├── planner_node.py       # 认知路线设计节点
-│   ├── knowledge_node.py     # 知识结构分析节点
-│   ├── design_node.py        # 通用教学行为节点（学科无关）
-│   ├── content_node.py       # 学科内容生成节点
-│   └── formatter_node.py     # 最终整合节点
+│   ├── planner_node.py       # 认知路线设计节点（输出 CognitiveFlow）
+│   ├── knowledge_node.py     # 知识结构分析节点（输出 KnowledgeStructure）
+│   ├── design_node.py        # 通用教学行为节点（输出 InteractionDesign）
+│   ├── content_node.py       # 学科内容生成节点（输出 ContentOutput）
+│   └── formatter_node.py     # 最终整合节点（调用 Renderer Pipeline）
 ├── llm/
 │   ├── __init__.py           # 模块导出
 │   ├── base.py               # LLM 基础抽象层（支持 Pydantic Model）
@@ -323,26 +440,47 @@ class LLMConfig:
 - 根据主题动态生成认知阶段
 - 关注学生认知状态变化
 
-### 2. 学科无关的教学行为
+### 2. Cognitive IR + Rendering Layer 分离
+
+核心架构升级：将 AI 内部认知结构（Cognitive IR）与教师可读输出分离。
+
+```
+Cognitive IR (planner + knowledge + design + content)
+    ↓
+Renderer Pipeline (确定性转换，不调用 LLM)
+    ↓
+TeacherLessonPlan (教师可读教案)
+    ↓
+Markdown Renderer (格式化输出)
+```
+
+**关键原则**：
+- Renderer 不调用 LLM（纯规则转换）
+- Cognitive IR ≠ Teacher-facing Output
+- 输出包含两层：AI 内部 + 教师可读
+- TeacherLessonPlan 可直接导出为 DOCX/PDF
+
+### 3. 学科无关的教学行为
 
 - design_node 只设计"怎么教"，不设计"教什么"
 - 通用教学行为可复用于不同学科
 - content_node 负责填充具体学科内容
 
-### 3. 严格分层
+### 4. 严格分层
 
 - 配置与业务逻辑隔离
 - 每个节点职责单一
 - 输出格式统一且可验证
+- Cognitive IR 模型与 Teacher 模型分离
 
-### 4. LangGraph 标准状态管理
+### 5. LangGraph 标准状态管理
 
 - 使用 Pydantic BaseModel 定义状态
 - 所有节点返回 partial update
 - 由 workflow 层负责 state merge
 - 支持类型验证和自动序列化
 
-### 5. Pydantic 强类型结构化输出
+### 6. Pydantic 强类型结构化输出
 
 - 所有节点输出使用 Pydantic Model
 - 删除手写 JSON Schema dict
@@ -352,12 +490,12 @@ class LLMConfig:
 
 ```python
 # 节点内部使用强类型 Model
-from models.planner import PlannerOutput, TeachingStage
+from models.cognitive import CognitiveFlow, CognitiveStage
 
 # 自动从 Pydantic Model 生成 schema
 planner_output = llm_client.generate_structured_output_v2(
     prompt=prompt,
-    output_model=PlannerOutput,  # Pydantic Model 类
+    output_model=CognitiveFlow,  # Pydantic Model 类
     system_prompt=system_prompt
 )
 
@@ -365,7 +503,7 @@ planner_output = llm_client.generate_structured_output_v2(
 return {"plan": planner_output.model_dump()}
 ```
 
-### 6. 多提供商支持
+### 7. 多提供商支持
 
 - 统一的 LLM 抽象层
 - 支持 LongCat、Claude、Qwen
@@ -373,25 +511,82 @@ return {"plan": planner_output.model_dump()}
 
 ## 示例输出
 
+### 两层输出结构
+
 ```json
 {
   "metadata": {
     "topic": "网络分层",
     "grade": "职高",
-    "generated_at": "2026-05-08T16:00:00Z"
+    "generated_at": "2026-05-08T16:00:00Z",
+    "version": "3.0",
+    "total_duration": "45分钟"
   },
-  "lesson_overview": "通过认知冲突→规律发现→模型建构的路径，帮助学生理解网络分层的必要性",
-  "cognitive_progression": [
-    "学生初始状态：认为通信就是直接发送",
-    "阶段1后：意识到通信会冲突",
-    "阶段2后：理解需要规则",
-    "最终状态：建立分层模型的整体认知"
-  ],
-  "teaching_process": [...],
-  "interaction_design": [...],
-  "practice_design": {...},
-  "blackboard_design": {...},
-  "homework": [...]
+
+  "teacher_lesson_plan": {
+    "header": {
+      "topic": "网络分层",
+      "grade": "职高",
+      "duration": "45分钟",
+      "teaching_objectives": [
+        "理解网络分层的必要性",
+        "掌握各层的基本功能"
+      ],
+      "key_points": ["分层的意义", "各层功能"],
+      "difficult_points": ["抽象模型的理解"]
+    },
+    "sections": [
+      {
+        "title": "为什么网络通信不能乱来",
+        "teacher_activity": "播放混乱动画；展示抓包截图",
+        "student_activity": "观察动画；尝试回答",
+        "design_intent": "从认为简单到意识到需要规则",
+        "duration": "10分钟"
+      }
+    ],
+    "practice": {
+      "level": "分层练习",
+      "questions": ["基础题1", "提高题1"],
+      "answers": ["答案1", "答案2"]
+    },
+    "homework": [
+      {
+        "type": "必做",
+        "content": "完成课后练习",
+        "purpose": "巩固课堂所学"
+      }
+    ],
+    "blackboard": {
+      "layout": "中心辐射式",
+      "main_content": ["网络分层模型", "各层功能"]
+    },
+    "summary": "通过本节课学习，学生建立了网络分层的整体认知"
+  },
+
+  "markdown": "# 网络分层 教案\n\n## 基本信息\n- 年级：职高\n...",
+
+  "cognitive_ir": {
+    "cognitive_flow": {
+      "lesson_overview": "通过认知冲突→规律发现→模型建构的路径",
+      "cognitive_progression": [
+        "学生初始状态：认为通信就是直接发送",
+        "阶段1后：意识到通信会冲突",
+        "最终状态：建立分层模型的整体认知"
+      ],
+      "stages": [...]
+    },
+    "knowledge_structure": {...},
+    "interaction_design": {...}
+  },
+
+  "statistics": {
+    "total_questions": 8,
+    "basic_questions": 3,
+    "intermediate_questions": 3,
+    "advanced_questions": 2,
+    "homework_count": 2,
+    "common_mistakes_count": 3
+  }
 }
 ```
 
@@ -430,8 +625,34 @@ def new_node(state: TeachingState) -> Dict[str, Any]:
     topic = state.topic
     # ... 业务逻辑 ...
 
+    # 使用 Pydantic Model 作为输出
+    from models.cognitive import NewModel
+    output = llm_client.generate_structured_output_v2(
+        prompt=prompt,
+        output_model=NewModel,
+        system_prompt=system_prompt
+    )
+
     # 返回 partial update（只返回修改的字段）
-    return {"new_field": new_data}
+    return {"new_field": output.model_dump()}
+```
+
+### 添加新的渲染器
+
+1. 在 `renderers/` 目录下创建新渲染器文件
+2. 实现纯函数（不调用 LLM）
+3. 在 `renderers/__init__.py` 中导出
+4. 在 `formatter_node.py` 中调用
+
+```python
+# 新渲染器示例
+def render_new_format(cognitive_ir: Dict[str, Any]) -> str:
+    """将 Cognitive IR 转换为新格式（确定性转换）"""
+    # 纯规则转换，不调用 LLM
+    result = []
+    for stage in cognitive_ir.get("stages", []):
+        result.append(f"## {stage['stage_name']}")
+    return "\n".join(result)
 ```
 
 ## 许可证
