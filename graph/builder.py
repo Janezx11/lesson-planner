@@ -22,7 +22,8 @@ from nodes.planner_node import create_planner_node
 from nodes.knowledge_node import create_knowledge_node
 from nodes.design_node import create_design_node
 from nodes.content_node import create_content_node
-from nodes.formatter_node import create_formatter_node
+from nodes.compiler_node import create_compiler_node
+from nodes.renderer_node import create_renderer_node
 
 
 logger = logging.getLogger(__name__)
@@ -114,10 +115,15 @@ class WorkflowBuilder:
         workflow.add_node(NodeNames.CONTENT, content_func)
         logger.debug(f"已注册 {NodeNames.CONTENT} 节点")
 
-        # 注册 formatter 节点
-        formatter_func = create_formatter_node()
-        workflow.add_node(NodeNames.FORMATTER, formatter_func)
-        logger.debug(f"已注册 {NodeNames.FORMATTER} 节点")
+        # 注册 compiler 节点
+        compiler_func = create_compiler_node()
+        workflow.add_node(NodeNames.COMPILER, compiler_func)
+        logger.debug(f"已注册 {NodeNames.COMPILER} 节点")
+
+        # 注册 renderer 节点
+        renderer_func = create_renderer_node()
+        workflow.add_node(NodeNames.RENDERER, renderer_func)
+        logger.debug(f"已注册 {NodeNames.RENDERER} 节点")
 
         # 环境变量仅在未显式指定 provider 时作为 fallback
         if self.llm_provider is None:
@@ -137,8 +143,9 @@ class WorkflowBuilder:
             (NodeNames.PLANNER, NodeNames.KNOWLEDGE),
             (NodeNames.KNOWLEDGE, NodeNames.DESIGN),
             (NodeNames.DESIGN, NodeNames.CONTENT),
-            (NodeNames.CONTENT, NodeNames.FORMATTER),
-            (NodeNames.FORMATTER, END)
+            (NodeNames.CONTENT, NodeNames.COMPILER),
+            (NodeNames.COMPILER, NodeNames.RENDERER),
+            (NodeNames.RENDERER, END)
         ]
 
         for from_node, to_node in edges:

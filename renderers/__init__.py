@@ -1,27 +1,23 @@
 """
 renderers - 渲染层
 
-将 Cognitive IR 转换为教师可读的教案格式。
+将 TeacherRuntimePlan 格式化为 Markdown/DOCX。
 
 关键原则：
 - Renderer 不调用 LLM（确定性转换）
-- 通过规则/template 将 Cognitive IR 转为 TeacherLessonPlan
-- 所有 Renderer 基于 TeacherLessonPlan，不直接依赖 Cognitive IR
+- Renderer 不理解教学逻辑
+- 只负责格式输出
 
 架构：
-    Cognitive IR (AI 内部)
-        ↓
-    Teacher Renderer (确定性转换)
-        ↓
-    TeacherLessonPlan (教师可读)
+    TeacherRuntimePlan (由 Compiler 生成)
         ↓
     Markdown Renderer / DOCX Renderer (格式化输出)
+        ↓
+    Markdown / DOCX / PPT
 """
 
-from .teacher_renderer import render_teacher_lesson_plan
 from .markdown_renderer import render_markdown
 
 __all__ = [
-    "render_teacher_lesson_plan",
     "render_markdown",
 ]

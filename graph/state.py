@@ -39,7 +39,8 @@ class TeachingState(BaseModel):
     - knowledge_node 使用 KnowledgeStructure (Cognitive IR)
     - design_node 使用 InteractionDesign (Cognitive IR)
     - content_node 使用 ContentOutput
-    - formatter_node 使用 Renderer Pipeline → TeacherLessonPlan
+    - compiler_node 使用 TeacherRuntimePlan (LLM 编译)
+    - renderer_node 使用 Markdown (格式输出)
     """
 
     # 输入字段（必填）
@@ -55,7 +56,8 @@ class TeachingState(BaseModel):
     knowledge: Dict[str, Any] = Field(default_factory=dict, description="知识结构 (由 knowledge_node 生成)")
     design: Dict[str, Any] = Field(default_factory=dict, description="教学设计 (由 design_node 生成)")
     content: Dict[str, Any] = Field(default_factory=dict, description="教学内容 (由 content_node 生成)")
-    final_output: Dict[str, Any] = Field(default_factory=dict, description="最终输出 (由 formatter_node 生成)")
+    runtime: Dict[str, Any] = Field(default_factory=dict, description="教师运行时教案 (由 compiler_node 生成)")
+    final_output: Dict[str, Any] = Field(default_factory=dict, description="最终输出 (由 renderer_node 生成)")
 
     # 控制字段
     error_count: int = Field(default=0, description="错误计数，用于重试机制")
@@ -78,6 +80,7 @@ def create_initial_state(topic: str, grade: str, provider: str = "claude") -> Te
         knowledge={},
         design={},
         content={},
+        runtime={},
         final_output={},
         error_count=0,
         max_retries=3
@@ -90,7 +93,8 @@ class NodeNames:
     KNOWLEDGE = "knowledge_node"
     DESIGN = "design_node"
     CONTENT = "content_node"
-    FORMATTER = "formatter_node"
+    COMPILER = "compiler_node"
+    RENDERER = "renderer_node"
 
 
 # 工作流边定义
@@ -98,5 +102,6 @@ class WorkflowEdges:
     PLANNER_TO_KNOWLEDGE = f"{NodeNames.PLANNER} -> {NodeNames.KNOWLEDGE}"
     KNOWLEDGE_TO_DESIGN = f"{NodeNames.KNOWLEDGE} -> {NodeNames.DESIGN}"
     DESIGN_TO_CONTENT = f"{NodeNames.DESIGN} -> {NodeNames.CONTENT}"
-    CONTENT_TO_FORMATTER = f"{NodeNames.CONTENT} -> {NodeNames.FORMATTER}"
-    FORMATTER_END = f"{NodeNames.FORMATTER} -> END"
+    CONTENT_TO_COMPILER = f"{NodeNames.CONTENT} -> {NodeNames.COMPILER}"
+    COMPILER_TO_RENDERER = f"{NodeNames.COMPILER} -> {NodeNames.RENDERER}"
+    RENDERER_END = f"{NodeNames.RENDERER} -> END"

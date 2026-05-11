@@ -3,27 +3,26 @@ models - Pydantic 强类型模型模块
 
 架构分层：
 - models/cognitive/: AI 教学认知中间层 (Teaching Cognitive IR)
-- models/teacher/: 教师可读教案模型 (Teacher-facing Models)
+- models/runtime/: 教师运行时模型 (Teacher Runtime Models)
 
-Cognitive IR 的作用：
-- AI 对教学的深层理解
+Cognitive IR 的作用（AI 内部，不暴露给教师）：
 - 认知推进路线
 - 知识结构分析
 - 互动设计策略
 - 练习题分层设计
 - 易错点模型
 
-Teacher-facing Model 的作用：
-- 接近真实教师教案
-- 易读
-- 可导出 DOCX
-- 可渲染 Markdown
+Runtime Model 的作用（最终给教师看）：
+- 课堂环节、教学活动
+- 师生互动、提问追问
+- 练习题、作业、板书
 - 接近真实学校教案格式
+- 可导出 DOCX、可渲染 Markdown
 
 关键原则：
-- Cognitive IR ≠ Teacher-facing Output
-- Renderer 负责将 Cognitive IR 转为 Teacher-facing Output
-- Renderer 不调用 LLM（确定性转换）
+- Cognitive IR ≠ Teacher Runtime Model
+- Compiler (LLM) 负责将 Cognitive IR 编译为 Runtime Model
+- Renderer 负责将 Runtime Model 格式化为 Markdown/DOCX
 """
 
 # Cognitive IR Models (AI 内部)
@@ -54,14 +53,13 @@ from .cognitive import (
     MisconceptionModel,
 )
 
-# Teacher-facing Models (教师可读)
-from .teacher import (
-    LessonSection,
-    PracticeSection,
-    HomeworkSection,
-    TeacherLessonPlan,
-    LessonHeader,
+# Teacher Runtime Models (教师可读)
+from .runtime import (
+    ClassroomSection,
+    ClassroomInteraction,
+    HomeworkTask,
     BlackboardDesign,
+    TeacherRuntimePlan,
 )
 
 __all__ = [
@@ -85,11 +83,10 @@ __all__ = [
     "PracticeDesign",
     "MisconceptionItem",
     "MisconceptionModel",
-    # Teacher-facing
-    "LessonSection",
-    "PracticeSection",
-    "HomeworkSection",
-    "TeacherLessonPlan",
-    "LessonHeader",
+    # Teacher Runtime
+    "ClassroomSection",
+    "ClassroomInteraction",
+    "HomeworkTask",
     "BlackboardDesign",
+    "TeacherRuntimePlan",
 ]
