@@ -65,7 +65,7 @@
     "阶段2后：...",
     "最终状态：..."
   ],
-  "teaching_process": [
+  "stages": [
     {
       "stage_name": "认知冲突：为什么网络通信不能乱来",
       "cognitive_state": "学生当前认知状态描述",
@@ -136,7 +136,7 @@
 - 必须是合法 JSON
 - 不要输出 markdown 或其他文本
 - 总长度控制在2000字以内
-- teaching_process 至少包含3个认知阶段
+- stages 至少包含3个认知阶段
 
 ---
 

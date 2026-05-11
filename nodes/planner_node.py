@@ -10,16 +10,11 @@ planner_node - 教学认知路线设计节点
 - 预期认知变化
 
 输出：
-- PlannerOutput: 强类型 Pydantic Model
+- CognitiveFlow: 强类型 Pydantic Model (Cognitive IR)
 
 禁止生成：
 - 完整师生对话（由 design_node 负责）
 - 练习题、板书、作业（由 content_node 负责）
-
-重构说明：
-- 删除手写 _get_planner_schema() JSON Schema dict
-- 使用 Pydantic PlannerOutput 作为结构化输出
-- 使用 generate_structured_output_v2() 自动校验
 """
 
 from typing import Dict, Any, List
@@ -59,7 +54,7 @@ TEACHING_STRATEGIES = [
 
 def validate_planner_output(output: CognitiveFlow) -> List[str]:
     """
-    验证 PlannerOutput 的业务规则
+    验证 CognitiveFlow 的业务规则
 
     Pydantic 已经保证了类型安全，
     这里只做业务层面的验证。
@@ -76,12 +71,12 @@ def validate_planner_output(output: CognitiveFlow) -> List[str]:
     if len(output.cognitive_progression) < 3:
         issues.append(f"cognitive_progression 只有{len(output.cognitive_progression)}个阶段，要求至少3个")
 
-    # 检查 teaching_process 数量
-    if len(output.teaching_process) < 2:
-        issues.append(f"teaching_process 只有{len(output.teaching_process)}个阶段，要求至少2个")
+    # 检查 stages 数量
+    if len(output.stages) < 2:
+        issues.append(f"stages 只有{len(output.stages)}个阶段，要求至少2个")
 
     # 检查每个阶段的认知化程度
-    for i, stage in enumerate(output.teaching_process):
+    for i, stage in enumerate(output.stages):
         # 检查 stage_name 是否包含冒号（认知化格式）
         if ":" not in stage.stage_name and "：" not in stage.stage_name:
             issues.append(f"阶段{i+1}的stage_name不符合'认知状态：认知目标'格式: {stage.stage_name}")
@@ -119,7 +114,7 @@ def create_default_planner_output() -> CognitiveFlow:
             "阶段2后：理解核心概念",
             "最终状态：能够应用所学知识"
         ],
-        teaching_process=[
+        stages=[
             CognitiveStage(
                 stage_name="认知冲突：为什么需要学习这个",
                 cognitive_state="学生对主题有初步认识，但缺乏深入理解",
@@ -161,7 +156,7 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
     使用 Pydantic Model 作为结构化输出，
     自动校验类型和必填字段。
 
-    返回 partial update: {"plan": PlannerOutput}
+    返回 partial update: {"plan": CognitiveFlow}
     """
     topic = state.topic
     grade = state.grade
@@ -188,7 +183,7 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 使用新的 v2 接口，自动从 PlannerOutput 生成 schema
+                # 使用 v2 接口，自动从 CognitiveFlow 生成 schema
                 planner_output = llm_client.generate_structured_output_v2(
                     prompt=prompt,
                     output_model=CognitiveFlow,
@@ -200,7 +195,7 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
 
                 if not issues:
                     logger.info("成功设计认知推进路线")
-                    # 返回 partial update，plan 是 PlannerOutput 实例
+                    # 返回 partial update，plan 是 CognitiveFlow 实例
                     return {"plan": planner_output.model_dump()}
                 else:
                     logger.warning(f"输出验证未通过 (尝试 {attempt + 1}/{max_retries}):")

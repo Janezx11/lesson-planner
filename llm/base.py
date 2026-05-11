@@ -55,7 +55,7 @@ class BaseLLMClient(ABC):
 
         Args:
             prompt: 用户提示
-            output_model: Pydantic Model 类（如 PlannerOutput）
+            output_model: Pydantic Model 类（如 CognitiveFlow）
             system_prompt: 系统提示
 
         Returns:

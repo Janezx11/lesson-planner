@@ -56,9 +56,9 @@ def validate_design_output(output: InteractionDesign) -> List[str]:
 
 
 def _extract_cognitive_route(plan: Dict[str, Any]) -> str:
-    """从 plan 中提取认知路线"""
+    """从 plan (CognitiveFlow dict) 中提取认知路线"""
     cognitive_progression = plan.get("cognitive_progression", [])
-    teaching_process = plan.get("teaching_process", [])
+    stages = plan.get("stages", [])
 
     route_parts = []
 
@@ -67,9 +67,9 @@ def _extract_cognitive_route(plan: Dict[str, Any]) -> str:
         for i, step in enumerate(cognitive_progression):
             route_parts.append(f"  {i+1}. {step}")
 
-    if teaching_process:
+    if stages:
         route_parts.append("\n认知阶段:")
-        for stage in teaching_process:
+        for stage in stages:
             stage_name = stage.get("stage_name", "")
             strategy = stage.get("teaching_strategy", "")
             route_parts.append(f"  - {stage_name} (策略: {strategy})")

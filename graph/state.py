@@ -35,11 +35,11 @@ class TeachingState(BaseModel):
     - LangGraph 自动合并到 state 中
 
     但节点内部使用强类型 Pydantic Model：
-    - planner_node 使用 PlannerOutput
-    - knowledge_node 使用 KnowledgeOutput
-    - design_node 使用 DesignOutput
+    - planner_node 使用 CognitiveFlow (Cognitive IR)
+    - knowledge_node 使用 KnowledgeStructure (Cognitive IR)
+    - design_node 使用 InteractionDesign (Cognitive IR)
     - content_node 使用 ContentOutput
-    - formatter_node 使用 FinalOutput
+    - formatter_node 使用 Renderer Pipeline → TeacherLessonPlan
     """
 
     # 输入字段（必填）

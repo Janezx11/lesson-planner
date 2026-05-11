@@ -23,7 +23,7 @@
 请输出 JSON 格式：
 
 {
-  "interaction_design": [
+  "interaction_points": [
     {
       "stage_name": "认知阶段名称（来自认知路线）",
       "interaction_type": "互动类型",
@@ -48,23 +48,7 @@
     "approach": "提问策略总体方法",
     "progression": "问题递进逻辑",
     "techniques": ["提问技巧1", "提问技巧2"]
-  },
-  "engagement_patterns": [
-    {
-      "pattern_name": "参与模式名称",
-      "when_to_use": "何时使用",
-      "how_to_implement": "如何实施",
-      "expected_effect": "预期效果"
-    }
-  ],
-  "feedback_mechanisms": [
-    {
-      "type": "反馈类型",
-      "trigger": "触发条件",
-      "response": "教师回应方式",
-      "purpose": "反馈目的"
-    }
-  ]
+  }
 }
 
 ---
@@ -115,25 +99,28 @@
 
 【关键约束】
 
-1️⃣ 必须学科无关：
+1️⃣ interaction_points 必须与认知路线中的 stages 对应：
+- 认知路线中有几个阶段，interaction_points 也必须有对应的互动设计
+
+2️⃣ 必须学科无关：
 ❌ 错误：讲解二次函数的定义
 ❌ 错误：分析OSI七层模型
 ✅ 正确：通过问题引导学生理解抽象概念
 ✅ 正确：用类比帮助学生建立直观理解
 
-2️⃣ 必须是教学行为：
+3️⃣ 必须是教学行为：
 ❌ 错误：学生学习二次函数
 ❌ 错误：教师讲解网络协议
 ✅ 正确：学生通过小组讨论归纳规律
 ✅ 正确：教师通过提问引导学生发现矛盾
 
-3️⃣ teacher_behavior 必须具体：
+4️⃣ teacher_behavior 必须具体：
 ❌ 错误：讲解知识
 ❌ 错误：引导学生
 ✅ 正确：提出开放性问题，等待3-5秒
 ✅ 正确：展示对比案例，引导学生观察差异
 
-4️⃣ student_behavior 必须明确：
+5️⃣ student_behavior 必须明确：
 ❌ 错误：听讲
 ❌ 错误：理解概念
 ✅ 正确：小组讨论，尝试提出自己的解释
