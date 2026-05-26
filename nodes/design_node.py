@@ -225,9 +225,11 @@ def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
     logger.error(f"design_node 错误: {error_msg}")
 
     default_output = create_default_design_output()
+    warnings = list(state.warnings) + [f"[design_node] 使用了默认输出: {error_msg}"]
     return {
         "design": default_output.model_dump(),
-        "error_count": state.error_count + 1
+        "error_count": state.error_count + 1,
+        "warnings": warnings,
     }
 
 

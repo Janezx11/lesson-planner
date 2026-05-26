@@ -77,9 +77,11 @@ def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
 
     from compiler.pedagogical_compiler import _create_default_runtime_plan
     default_plan = _create_default_runtime_plan(state.topic, state.grade)
+    warnings = list(state.warnings) + [f"[compiler_node] 使用了默认输出: {error_msg}"]
     return {
         "runtime": default_plan.model_dump(),
         "error_count": state.error_count + 1,
+        "warnings": warnings,
     }
 
 

@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from utils.logger import get_logger
 from graph.state import TeachingState
 from llm.factory import get_llm_for_state
-from models.content import ContentOutput, PracticeDesign, BlackboardDesign
+from models.content import ContentOutput, ContentPracticeDesign, ContentBlackboardDesign
 
 logger = get_logger(__name__)
 
@@ -67,23 +67,23 @@ def validate_content_output(output: ContentOutput) -> List[str]:
 def create_default_content_output() -> ContentOutput:
     """创建默认的教学内容"""
     from models.content import (
-        PracticeQuestion, HomeworkItem, ContentMistake
+        ContentPracticeQuestion, HomeworkItem, ContentMistake
     )
 
     return ContentOutput(
-        practice_design=PracticeDesign(
+        practice_design=ContentPracticeDesign(
             basic=[
-                PracticeQuestion(question="基础练习题", answer="参考答案", purpose="考察基本概念", time="2分钟"),
-                PracticeQuestion(question="基础练习题2", answer="参考答案", purpose="考察基本计算", time="2分钟")
+                ContentPracticeQuestion(question="基础练习题", answer="参考答案", purpose="考察基本概念", time="2分钟"),
+                ContentPracticeQuestion(question="基础练习题2", answer="参考答案", purpose="考察基本计算", time="2分钟")
             ],
             intermediate=[
-                PracticeQuestion(question="中等练习题", answer="参考答案", purpose="考察应用能力", time="3分钟")
+                ContentPracticeQuestion(question="中等练习题", answer="参考答案", purpose="考察应用能力", time="3分钟")
             ],
             advanced=[
-                PracticeQuestion(question="拓展练习题", answer="参考答案", purpose="考察综合能力", time="5分钟")
+                ContentPracticeQuestion(question="拓展练习题", answer="参考答案", purpose="考察综合能力", time="5分钟")
             ]
         ),
-        blackboard_design=BlackboardDesign(
+        blackboard_design=ContentBlackboardDesign(
             layout="左中右三区布局",
             main_content=["核心概念", "重要公式", "解题步骤"],
             key_formulas=["公式1", "公式2"],
@@ -204,17 +204,15 @@ def _get_system_prompt() -> str:
 
 
 def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
-    """
-    处理错误情况
-
-    返回 partial update
-    """
+    """处理错误情况，返回 partial update"""
     logger.error(f"content_node 错误: {error_msg}")
 
     default_output = create_default_content_output()
+    warnings = list(state.warnings) + [f"[content_node] 使用了默认输出: {error_msg}"]
     return {
         "content": default_output.model_dump(),
-        "error_count": state.error_count + 1
+        "error_count": state.error_count + 1,
+        "warnings": warnings,
     }
 
 

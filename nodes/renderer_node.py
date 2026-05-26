@@ -69,6 +69,9 @@ def renderer_node(state: TeachingState) -> Dict[str, Any]:
 
             # 统计信息
             "statistics": _generate_statistics(runtime_plan),
+
+            # 警告信息（如使用了 fallback）
+            "warnings": list(state.warnings),
         }
 
         logger.info("成功渲染最终输出")

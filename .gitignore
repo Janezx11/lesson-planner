@@ -81,10 +81,13 @@ outputs/
 # 调试文件
 debug_*.py
 verify_fix.py
-test_*.py
 simple_*.py
 final_test.py
 show_progress.py
+
+# 根目录临时测试脚本（不排除 tests/ 目录下的正式测试）
+/test.py
+/test_*.py
 
 # 临时文件（但保留 requirements.txt）
 *.txt
@@ -113,17 +116,11 @@ QUICKSTART.md
 VERIFICATION.md
 README_*.md
 
-# 测试和调试脚本
+# 临时脚本
 demo.py
-test.py
-test_*.py
 
 # 错误命名的文件
 g:*
-
-# 临时文件（但保留 requirements.txt）
-*.txt
-!requirements.txt
 
 # 保留 prompts
 !prompts/

@@ -62,6 +62,7 @@ class TeachingState(BaseModel):
     # 控制字段
     error_count: int = Field(default=0, description="错误计数，用于重试机制")
     max_retries: int = Field(default=3, description="最大重试次数")
+    warnings: list = Field(default_factory=list, description="警告信息（如使用了 fallback）")
 
     class Config:
         """Pydantic 配置"""

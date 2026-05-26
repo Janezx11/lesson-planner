@@ -6,3 +6,4 @@ typing-extensions==4.12.2
 openai>=1.0.0
 dashscope>=1.10.0
 python-docx>=1.0.0
+pytest>=7.0.0

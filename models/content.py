@@ -1,31 +1,33 @@
 """
 content_node 输出的 Pydantic Model
 
-替代手写 _get_content_schema() JSON Schema dict。
-Pydantic Model 自动生成 JSON Schema，保证类型安全。
+这是 content_node 的 LLM 输出 schema，仅用于 content_node 内部。
+与 models/runtime/ 的教师运行时模型是不同的层次。
+
+注意：类名加 Content 前缀以避免与 models/runtime/ 命名冲突。
 """
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-class PracticeQuestion(BaseModel):
-    """练习题"""
+class ContentPracticeQuestion(BaseModel):
+    """content_node 输出的练习题"""
     question: str = Field(description="题目内容")
     answer: str = Field(description="参考答案")
     purpose: str = Field(default="", description="考察目标")
     time: str = Field(default="", description="建议用时")
 
 
-class PracticeDesign(BaseModel):
-    """练习题设计（分层）"""
-    basic: List[PracticeQuestion] = Field(default_factory=list, description="基础题")
-    intermediate: List[PracticeQuestion] = Field(default_factory=list, description="中等题")
-    advanced: List[PracticeQuestion] = Field(default_factory=list, description="拓展题")
+class ContentPracticeDesign(BaseModel):
+    """content_node 输出的练习题设计（分层）"""
+    basic: List[ContentPracticeQuestion] = Field(default_factory=list, description="基础题")
+    intermediate: List[ContentPracticeQuestion] = Field(default_factory=list, description="中等题")
+    advanced: List[ContentPracticeQuestion] = Field(default_factory=list, description="拓展题")
 
 
-class BlackboardDesign(BaseModel):
-    """板书设计"""
+class ContentBlackboardDesign(BaseModel):
+    """content_node 输出的板书设计"""
     layout: str = Field(default="", description="布局描述")
     main_content: List[str] = Field(default_factory=list, description="主板书内容")
     key_formulas: List[str] = Field(default_factory=list, description="核心公式/概念")
@@ -64,12 +66,12 @@ class ContentExample(BaseModel):
 class ContentOutput(BaseModel):
     """content_node 的结构化输出"""
 
-    practice_design: PracticeDesign = Field(
-        default_factory=PracticeDesign,
+    practice_design: ContentPracticeDesign = Field(
+        default_factory=ContentPracticeDesign,
         description="练习题设计"
     )
-    blackboard_design: BlackboardDesign = Field(
-        default_factory=BlackboardDesign,
+    blackboard_design: ContentBlackboardDesign = Field(
+        default_factory=ContentBlackboardDesign,
         description="板书设计"
     )
     homework: List[HomeworkItem] = Field(default_factory=list, description="作业设计")

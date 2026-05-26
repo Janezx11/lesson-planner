@@ -246,17 +246,15 @@ def _get_system_prompt() -> str:
 
 
 def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:
-    """
-    处理错误情况
-
-    返回 partial update
-    """
+    """处理错误情况，返回 partial update"""
     logger.error(f"planner_node 错误: {error_msg}")
 
     default_output = create_default_planner_output()
+    warnings = list(state.warnings) + [f"[planner_node] 使用了默认输出: {error_msg}"]
     return {
         "plan": default_output.model_dump(),
-        "error_count": state.error_count + 1
+        "error_count": state.error_count + 1,
+        "warnings": warnings,
     }
 
 
