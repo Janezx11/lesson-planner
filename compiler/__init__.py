@@ -15,6 +15,6 @@ compiler - 教学认知编译器 (LLM Pedagogical Compiler)
 - 将认知目标转为教师可理解的教学目标
 """
 
-from .pedagogical_compiler import compile_cognitive_ir
+from .pedagogical_compiler import compile_cognitive_ir, score_runtime_plan
 
-__all__ = ["compile_cognitive_ir"]
+__all__ = ["compile_cognitive_ir", "score_runtime_plan"]

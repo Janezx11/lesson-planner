@@ -89,10 +89,20 @@ class LLMClientFactory:
     @classmethod
     def create(cls, provider: str, config: "LLMConfig") -> BaseLLMClient:
         provider = provider.lower()
-        if provider not in cls._providers:
-            available = list(cls._providers.keys())
+
+        # 1. 优先查注册表（特殊客户端如 Claude）
+        if provider in cls._providers:
+            return cls._providers[provider](config)
+
+        # 2. 按 sdk 类型自动路由
+        if config.sdk == "anthropic":
+            from .claude import ClaudeClient
+            return ClaudeClient(config)
+        elif config.sdk == "openai":
+            from .openai_client import OpenAICompatibleClient
+            return OpenAICompatibleClient(config)
+        else:
             raise ValueError(
-                f"Unsupported provider: '{provider}'. Available: {available}"
+                f"Unknown sdk type: '{config.sdk}'. "
+                f"Registered providers: {list(cls._providers.keys())}"
             )
-        client_class = cls._providers[provider]
-        return client_class(config)

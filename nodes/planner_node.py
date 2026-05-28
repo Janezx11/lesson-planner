@@ -23,6 +23,7 @@ from utils.logger import get_logger
 from graph.state import TeachingState
 from llm.factory import get_llm_for_state
 from models.cognitive import CognitiveFlow, CognitiveStage
+from models.subjects import detect_subject, get_subject_guidance, format_subject_guidance
 
 logger = get_logger(__name__)
 
@@ -174,10 +175,18 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
     # 构建 Prompt
     prompt = prompt_template.replace('{topic}', topic).replace('{grade}', grade)
 
+    # 学科检测 & 指导注入
+    subject = detect_subject(topic)
+    subject_guidance = get_subject_guidance(subject)
+    if subject_guidance:
+        logger.info(f"检测到学科: {subject}，注入学科指导")
+
     try:
         # 调用 LLM API，使用 Pydantic Model 自动校验
         llm_state = {**state.model_dump(), 'temperature': 0.3}
         llm_client = get_llm_for_state(llm_state)
+
+        system_prompt = _get_system_prompt(subject_guidance)
 
         # 重试机制
         max_retries = 3
@@ -187,7 +196,7 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
                 planner_output = llm_client.generate_structured_output_v2(
                     prompt=prompt,
                     output_model=CognitiveFlow,
-                    system_prompt=_get_system_prompt()
+                    system_prompt=system_prompt
                 )
 
                 # 业务层面验证
@@ -230,9 +239,9 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
         return _handle_error(state, str(e))
 
 
-def _get_system_prompt() -> str:
+def _get_system_prompt(subject_guidance=None) -> str:
     """获取系统提示"""
-    return (
+    base = (
         "你是一位深谙认知科学的教学设计师。\n"
         "你的任务是设计学生认知推进路线，而不是传统教学目录。\n\n"
         "【核心理念】\n"
@@ -243,6 +252,9 @@ def _get_system_prompt() -> str:
         "5. 必须包含 cognitive_progression 字段，描述学生认知如何一步步推进\n"
         "6. 必须包含 teaching_strategy 字段，说明本阶段采用的教学策略\n"
     )
+    if subject_guidance:
+        base += f"\n{format_subject_guidance(subject_guidance)}\n"
+    return base
 
 
 def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:

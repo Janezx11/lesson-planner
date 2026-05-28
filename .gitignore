@@ -78,6 +78,9 @@ teaching_plan_*.json
 # 导出的教案文件
 outputs/
 
+# 教案缓存
+.cache/
+
 # 调试文件
 debug_*.py
 verify_fix.py

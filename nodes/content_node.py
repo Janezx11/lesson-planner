@@ -24,6 +24,7 @@ from utils.logger import get_logger
 from graph.state import TeachingState
 from llm.factory import get_llm_for_state
 from models.content import ContentOutput, ContentPracticeDesign, ContentBlackboardDesign
+from models.subjects import detect_subject, get_subject_guidance, format_subject_guidance
 
 logger = get_logger(__name__)
 
@@ -121,6 +122,12 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
 
     logger.info(f"开始生成教学内容: 主题={topic}, 年级={grade}")
 
+    # 学科检测
+    subject = detect_subject(topic)
+    subject_guidance = get_subject_guidance(subject)
+    if subject_guidance:
+        logger.info(f"检测到学科: {subject}，注入学科指导")
+
     # 读取 Prompt 模板
     try:
         with open("prompts/content.txt", "r", encoding="utf-8") as f:
@@ -138,6 +145,8 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
         # 调用 LLM API，使用 Pydantic Model 自动校验
         llm_client = get_llm_for_state(state.model_dump())
 
+        sys_prompt = _get_system_prompt(subject_guidance)
+
         # 重试机制
         max_retries = 3
         for attempt in range(max_retries):
@@ -146,7 +155,7 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
                 content_output = llm_client.generate_structured_output_v2(
                     prompt=prompt,
                     output_model=ContentOutput,
-                    system_prompt=_get_system_prompt()
+                    system_prompt=sys_prompt
                 )
 
                 # 业务层面验证
@@ -189,9 +198,9 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
         return _handle_error(state, str(e))
 
 
-def _get_system_prompt() -> str:
+def _get_system_prompt(subject_guidance=None) -> str:
     """获取系统提示"""
-    return (
+    base = (
         "你是一位经验丰富的教学内容设计师。\n"
         "你的任务是根据教学计划骨架和互动设计，生成具体的教学内容。\n\n"
         "【重要规则】\n"
@@ -201,6 +210,9 @@ def _get_system_prompt() -> str:
         "4. homework 必须包含：type（必做/选做）、content（作业内容）、purpose（作业目的）\n"
         "5. 保持输出简洁，总长度控制在3500tokens以内\n"
     )
+    if subject_guidance:
+        base += f"\n{format_subject_guidance(subject_guidance)}\n"
+    return base
 
 
 def _handle_error(state: TeachingState, error_msg: str) -> Dict[str, Any]:

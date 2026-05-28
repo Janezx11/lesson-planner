@@ -4,8 +4,8 @@ ClassroomSection - 课堂环节模型
 接近真实教案的环节描述，不使用认知科学术语。
 """
 
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, List, Union
+from pydantic import BaseModel, Field, field_validator
 
 
 class ClassroomSection(BaseModel):
@@ -17,3 +17,11 @@ class ClassroomSection(BaseModel):
     interaction_method: str = Field(default="", description="互动方式（提问/讨论/演示/练习/小组合作）")
     duration_minutes: Optional[int] = Field(default=None, description="建议时长（分钟）")
     teaching_intent: str = Field(default="", description="设计意图（用教师能理解的语言）")
+
+    @field_validator("teacher_activity", "student_activity", mode="before")
+    @classmethod
+    def coerce_list_to_str(cls, v):
+        """兼容模型返回数组的情况，自动拼接为字符串。"""
+        if isinstance(v, list):
+            return "；".join(str(item) for item in v if item)
+        return v

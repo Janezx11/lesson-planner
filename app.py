@@ -24,6 +24,7 @@ if os.path.exists('.env'):
 
 from graph.state import create_initial_state, TeachingState
 from graph.builder import build_teaching_copilot_graph
+from cache import get_cache_key, get_cached, set_cached, clear_cache, cache_stats
 
 
 # 配置日志
@@ -38,19 +39,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_workflow(topic: str, grade: str, provider: str = "claude") -> Dict[str, Any]:
+def run_workflow(topic: str, grade: str, provider: str = "claude", use_cache: bool = True) -> Dict[str, Any]:
     """
     运行完整的教学方案设计工作流
 
     Args:
         topic: 教学主题
         grade: 年级
-        provider: LLM 提供商 (claude, qwen, longcat)
+        provider: LLM 提供商
+        use_cache: 是否使用缓存
 
     Returns:
         最终的教学方案字典
     """
     logger.info(f"开始执行教学方案设计: 主题={topic}, 年级={grade}, 提供商={provider}")
+
+    # 检查缓存
+    if use_cache:
+        cache_key = get_cache_key(topic, grade, provider)
+        cached = get_cached(cache_key)
+        if cached is not None:
+            # 更新时间戳
+            cached.setdefault("metadata", {})["generated_at"] = datetime.now().isoformat()
+            logger.info("使用缓存结果")
+            return cached
 
     # 设置 LLM 提供商
     os.environ["LLM_PROVIDER"] = provider
@@ -91,6 +103,10 @@ def run_workflow(topic: str, grade: str, provider: str = "claude") -> Dict[str, 
             },
             **final_output
         }
+
+        # 写入缓存
+        if use_cache:
+            set_cached(cache_key, enriched_output)
 
         logger.info("教学方案设计完成")
         return enriched_output
@@ -256,9 +272,9 @@ def main():
     parser.add_argument(
         "--provider",
         type=str,
-        choices=["claude", "qwen", "longcat"],
         default="claude",
-        help="LLM 提供商 (claude, qwen, longcat)"
+        help="LLM 提供商名称。内置: claude, qwen, longcat。"
+             "任何 OpenAI 兼容的 provider 可通过 LLMConfig.register_provider() 添加"
     )
 
     parser.add_argument(
@@ -267,10 +283,28 @@ def main():
         help="启用详细日志输出"
     )
 
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="跳过缓存，强制重新生成"
+    )
+
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="清除所有缓存后退出"
+    )
+
     args = parser.parse_args()
 
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+
+    # 清除缓存
+    if args.clear_cache:
+        count = clear_cache()
+        print(f"已清除 {count} 个缓存文件")
+        return 0
 
     # 处理 "all" 格式
     formats = args.export
@@ -281,7 +315,7 @@ def main():
 
     try:
         # 运行工作流
-        result = run_workflow(args.topic, args.grade, args.provider)
+        result = run_workflow(args.topic, args.grade, args.provider, use_cache=not args.no_cache)
 
         if "error" in result:
             print(f"ERROR: {result['error']}")

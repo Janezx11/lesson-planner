@@ -23,48 +23,107 @@ from compiler.prompt_builder import build_compiler_prompt
 
 logger = get_logger(__name__)
 
+# 认知术语 → 教师友好术语 的自动替换表
+_COGNITIVE_TERM_REPLACEMENTS = {
+    "认知冲突": "导入新课",
+    "认知状态": "",
+    "认知目标": "教学目标",
+    "预期认知变化": "设计意图",
+    "认知递进": "",
+    "元认知": "",
+    "misconception": "常见错误",
+    "Misconception": "常见错误",
+    "MISCONCEPTION": "常见错误",
+    "scaffolding": "学习支持",
+    "Scaffolding": "学习支持",
+    "SCAFFOLDING": "学习支持",
+    "cognitive": "",
+    "Cognitive": "",
+    "COGNITIVE": "",
+    "认知模型": "知识框架",
+    "认知负荷": "学习难度",
+    "认知发展": "学习进阶",
+}
+
+
+def _scrub_cognitive_terms(text: str) -> str:
+    """自动替换文本中的认知术语为教师友好术语。"""
+    result = text
+    for term, replacement in _COGNITIVE_TERM_REPLACEMENTS.items():
+        result = result.replace(term, replacement)
+    return result
+
+
+def _scrub_plan_recursively(plan_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """递归替换 plan 字典中所有字符串字段的认知术语。"""
+    cleaned = {}
+    for key, value in plan_dict.items():
+        if isinstance(value, str):
+            cleaned[key] = _scrub_cognitive_terms(value)
+        elif isinstance(value, list):
+            cleaned[key] = [
+                _scrub_plan_recursively(item) if isinstance(item, dict)
+                else _scrub_cognitive_terms(item) if isinstance(item, str)
+                else item
+                for item in value
+            ]
+        elif isinstance(value, dict):
+            cleaned[key] = _scrub_plan_recursively(value)
+        else:
+            cleaned[key] = value
+    return cleaned
+
+
 COMPILER_SYSTEM_PROMPT = """你是一位资深教学设计师，擅长将教学理论转化为可执行的课堂教案。
 
 你的任务是将"教学认知分析报告"编译为"教师可执行教案"。
+
+【最高优先级 - 禁止术语】
+你的输出中绝对不能出现以下词语，违反将导致输出作废：
+❌ 禁止：认知冲突、认知状态、认知目标、认知递进、元认知、cognitive、misconception、scaffolding、cognitive_level
+✅ 替换为：导入新课、设置悬念、引发思考、教学目标、设计意图、常见错误、学习支持
 
 【核心转换规则】
 
 1. 术语转换：
    - "认知冲突" → "导入新课"、"设置悬念"、"引发思考"
-   - "认知状态" → 删除，不要出现在输出中
-   - "认知目标" → "教学目标"（用教师能理解的语言）
-   - "预期认知变化" → "设计意图"（如"让学生意识到..."）
-   - "认知递进" → 删除，不要出现在输出中
+   - "认知状态" → 删除
+   - "认知目标" → "教学目标"
+   - "预期认知变化" → "设计意图"
+   - "认知递进" → 删除
    - "元认知" → 删除
    - "misconception" → "常见错误"
    - "scaffolding" → "学习支持"
-   - "cognitive_level" → 删除
 
-2. 环节标题转换：
-   - 不要使用"认知冲突：XXX"这种格式
+2. 环节标题：
    - 使用真实课堂环节名称：导入新课、合作探究、精讲点拨、巩固练习、课堂小结
-   - 或使用描述性标题：为什么要学习分层、动手体验通信过程
+   - 或描述性标题：为什么要学习分层、动手体验通信过程
 
-3. 教学活动转换：
-   - 保留具体的可视化动作（播放动画、展示案例、组织活动）
-   - 删除抽象的认知描述（"激发认知冲突"、"建立认知模型"）
-   - 补充具体的课堂操作细节
+3. 教学活动：
+   - 保留具体动作（播放动画、展示案例、组织活动）
+   - 删除抽象认知描述（"激发认知冲突"、"建立认知模型"）
 
-4. 互动设计转换：
-   - 将"提问策略"转为具体的教师提问（完整问句）
-   - 将"预期学生回答"转为多个层次的具体回答
-   - 补充教师的追问和反馈策略
-
-5. 教学目标转换：
+4. 教学目标：
    - 使用"学生能够..."的句式
-   - 不要出现"认知"、"元认知"等术语
    - 具体、可测量、可观察
+
+【字段名称 - 必须严格遵守！】
+topic, grade, duration, teaching_methods, teaching_objectives, key_points, difficult_points, sections, interactions, practice_questions, homework, blackboard, summary
+
+sections 每个对象包含: title, teacher_activity, student_activity, interaction_method, duration_minutes, teaching_intent
+interactions 每个对象包含: trigger, teacher_question, expected_responses, teacher_followup
+practice_questions 每个对象包含: question, answer, purpose, difficulty
+homework 每个对象包含: type, content, purpose
+blackboard 包含: layout, main_content, key_formulas, diagrams
+
+禁止使用其他字段名！禁止使用中文字段名！
 
 【输出要求】
 - 必须输出合法 JSON
 - 不要输出任何其他文本
 - 所有字段必须填写
-- 总长度控制在3000字以内"""
+- 总长度控制在3000字以内
+- 输出前检查：是否包含禁止术语？如有，立即替换！"""
 
 
 def compile_cognitive_ir(
@@ -124,10 +183,21 @@ def compile_cognitive_ir(
                 system_prompt=COMPILER_SYSTEM_PROMPT
             )
 
-            # 3. 业务验证
+            # 3. 后处理：自动清除残留的认知术语
+            plan_dict = runtime_plan.model_dump()
+            cleaned_dict = _scrub_plan_recursively(plan_dict)
+            runtime_plan = TeacherRuntimePlan(**cleaned_dict)
+
+            # 4. 业务验证
             issues = validate_runtime_plan(runtime_plan)
             if not issues:
-                logger.info("成功编译 Teacher Runtime Plan")
+                quality = score_runtime_plan(runtime_plan)
+                logger.info(
+                    f"成功编译 Teacher Runtime Plan — 质量评分: {quality['total']}/{quality['max']} ({quality['grade']})"
+                )
+                if quality["deductions"]:
+                    for d in quality["deductions"]:
+                        logger.debug(f"  扣分: {d}")
                 return runtime_plan
             else:
                 logger.warning(f"编译输出验证未通过 (尝试 {attempt + 1}/{max_retries}):")
@@ -169,6 +239,83 @@ def validate_runtime_plan(plan: TeacherRuntimePlan) -> List[str]:
             issues.append(f"输出中仍包含认知术语: {term}")
 
     return issues
+
+
+def score_runtime_plan(plan: TeacherRuntimePlan) -> Dict[str, Any]:
+    """对 TeacherRuntimePlan 进行质量评分。
+
+    Returns:
+        评分结果，包含总分和各维度得分。
+    """
+    scores = {}
+    deductions = []
+
+    # 1. 字段完整性 (30分)
+    completeness = 30
+    if not plan.teaching_objectives:
+        completeness -= 10
+        deductions.append("缺少教学目标 (-10)")
+    if not plan.sections:
+        completeness -= 10
+        deductions.append("缺少教学环节 (-10)")
+    if not plan.homework:
+        completeness -= 5
+        deductions.append("缺少作业设计 (-5)")
+    scores["字段完整性"] = max(0, completeness)
+
+    # 2. 认知术语清洁度 (25分)
+    cleanliness = 25
+    cognitive_terms = ["认知冲突", "认知状态", "认知目标", "认知递进", "元认知", "cognitive", "misconception", "scaffolding"]
+    all_text = json.dumps(plan.model_dump(), ensure_ascii=False).lower()
+    for term in cognitive_terms:
+        if term.lower() in all_text:
+            cleanliness -= 5
+            deductions.append(f"残留术语 '{term}' (-5)")
+    scores["术语清洁度"] = max(0, cleanliness)
+
+    # 3. 环节时间合理性 (20分)
+    time_score = 20
+    if plan.sections:
+        total_minutes = sum(s.duration_minutes or 0 for s in plan.sections)
+        if total_minutes == 0:
+            time_score -= 10
+            deductions.append("未填写时长 (-10)")
+        elif total_minutes < 30:
+            time_score -= 5
+            deductions.append(f"总时长偏短: {total_minutes}分钟 (-5)")
+        if len(plan.sections) < 3:
+            time_score -= 5
+            deductions.append(f"环节偏少: {len(plan.sections)}个 (-5)")
+    scores["时间合理性"] = max(0, time_score)
+
+    # 4. 互动设计 (15分)
+    interaction_score = 15
+    if not plan.interactions:
+        interaction_score -= 10
+        deductions.append("缺少互动设计 (-10)")
+    elif len(plan.interactions) < 2:
+        interaction_score -= 5
+        deductions.append(f"互动偏少: {len(plan.interactions)}个 (-5)")
+    scores["互动设计"] = max(0, interaction_score)
+
+    # 5. 练习与作业 (10分)
+    practice_score = 10
+    if not plan.practice_questions:
+        practice_score -= 5
+        deductions.append("缺少练习题 (-5)")
+    if not plan.homework:
+        practice_score -= 5
+        deductions.append("缺少作业 (-5)")
+    scores["练习与作业"] = max(0, practice_score)
+
+    total = sum(scores.values())
+    return {
+        "total": total,
+        "max": 110,
+        "scores": scores,
+        "deductions": deductions,
+        "grade": "优秀" if total >= 90 else "良好" if total >= 75 else "合格" if total >= 60 else "需改进",
+    }
 
 
 def _create_default_runtime_plan(topic: str, grade: str) -> TeacherRuntimePlan:

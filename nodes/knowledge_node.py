@@ -17,6 +17,7 @@ from utils.logger import get_logger
 from graph.state import TeachingState
 from llm.factory import get_llm_for_state
 from models.cognitive import KnowledgeStructure
+from models.subjects import detect_subject, get_subject_guidance, format_subject_guidance
 
 logger = get_logger(__name__)
 
@@ -35,6 +36,12 @@ def knowledge_node(state: TeachingState) -> Dict[str, Any]:
     plan = state.plan
 
     logger.info(f"开始分析知识结构: 主题={topic}, 年级={grade}")
+
+    # 学科检测
+    subject = detect_subject(topic)
+    subject_guidance = get_subject_guidance(subject)
+    if subject_guidance:
+        logger.info(f"检测到学科: {subject}，注入学科指导")
 
     # 读取 Prompt 模板
     try:
@@ -55,6 +62,10 @@ def knowledge_node(state: TeachingState) -> Dict[str, Any]:
         # 调用 LLM API，使用 Pydantic Model 自动校验
         llm_client = get_llm_for_state(state.model_dump())
 
+        sys_prompt = "你是一个专业的学科知识分析师，擅长深入剖析知识结构和学习难点。"
+        if subject_guidance:
+            sys_prompt += f"\n\n{format_subject_guidance(subject_guidance)}"
+
         # 重试机制
         max_retries = 3
         for attempt in range(max_retries):
@@ -63,7 +74,7 @@ def knowledge_node(state: TeachingState) -> Dict[str, Any]:
                 knowledge_output = llm_client.generate_structured_output_v2(
                     prompt=prompt,
                     output_model=KnowledgeStructure,
-                    system_prompt="你是一个专业的学科知识分析师，擅长深入剖析知识结构和学习难点。"
+                    system_prompt=sys_prompt
                 )
 
                 logger.info("成功生成知识结构分析")

@@ -131,31 +131,35 @@ class WorkflowBuilder:
         logger.info(f"使用 LLM 提供商: {self.llm_provider}")
 
     def _configure_edges(self, workflow: StateGraph) -> None:
-        """配置工作流边"""
+        """配置工作流边
+
+        执行拓扑：
+            ┌─ planner_node ─┐
+        START                  ├→ design_node → content_node → compiler_node → renderer_node → END
+            └─ knowledge_node ┘
+
+        planner_node 和 knowledge_node 无数据依赖，可以并行执行，
+        省去一次 ~70 秒的 LLM 调用。
+        """
         logger.debug("配置工作流边")
 
-        # 设置开始节点
-        workflow.set_entry_point(NodeNames.PLANNER)
-        logger.debug(f"设置入口点为 {NodeNames.PLANNER}")
+        # START 同时触发 planner 和 knowledge（并行分支）
+        workflow.add_edge("__start__", NodeNames.PLANNER)
+        workflow.add_edge("__start__", NodeNames.KNOWLEDGE)
+        logger.debug(f"并行分支: START → {NodeNames.PLANNER} + {NodeNames.KNOWLEDGE}")
 
-        # 配置节点间的边
-        edges = [
-            (NodeNames.PLANNER, NodeNames.KNOWLEDGE),
-            (NodeNames.KNOWLEDGE, NodeNames.DESIGN),
-            (NodeNames.DESIGN, NodeNames.CONTENT),
-            (NodeNames.CONTENT, NodeNames.COMPILER),
-            (NodeNames.COMPILER, NodeNames.RENDERER),
-            (NodeNames.RENDERER, END)
-        ]
+        # 两个分支汇合到 design
+        workflow.add_edge(NodeNames.PLANNER, NodeNames.DESIGN)
+        workflow.add_edge(NodeNames.KNOWLEDGE, NodeNames.DESIGN)
+        logger.debug(f"汇合: {NodeNames.PLANNER} + {NodeNames.KNOWLEDGE} → {NodeNames.DESIGN}")
 
-        for from_node, to_node in edges:
-            workflow.add_edge(from_node, to_node)
-            logger.debug(f"添加边: {from_node} -> {to_node}")
+        # 后续线性流程
+        workflow.add_edge(NodeNames.DESIGN, NodeNames.CONTENT)
+        workflow.add_edge(NodeNames.CONTENT, NodeNames.COMPILER)
+        workflow.add_edge(NodeNames.COMPILER, NodeNames.RENDERER)
+        workflow.add_edge(NodeNames.RENDERER, END)
 
-        # 添加条件边（如果需要的话）
-        # 目前使用简单的线性流程，所以不需要条件边
-
-        logger.debug("工作流边配置完成")
+        logger.debug("工作流边配置完成（含并行分支）")
 
 
 # 全局工作流构建器实例

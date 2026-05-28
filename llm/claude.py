@@ -10,8 +10,8 @@ import logging
 from typing import Dict, Any, Optional
 
 from .base import BaseLLMClient, LLMClientFactory
-from utils.parser import safe_parse_json, JSONParsingError
-
+from .json_repair import parse_llm_json
+from utils.parser import JSONParsingError
 
 logger = logging.getLogger(__name__)
 
@@ -40,85 +40,10 @@ class ClaudeClient(BaseLLMClient):
         except ImportError:
             raise ImportError("anthropic package is required. Install it with: pip install anthropic")
 
-    def _ensure_json_format(self, text: str) -> str:
-        """
-        确保文本是有效的 JSON 格式
-
-        Args:
-            text: 输入的文本
-
-        Returns:
-            格式化后的 JSON 字符串
-        """
-        # 查找第一个 { 到最后一个 }
-        start_idx = text.find('{')
-        end_idx = text.rfind('}')
-
-        if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
-            raise JSONParsingError(f"无法在文本中找到有效的 JSON 结构: {text[:100]}...")
-
-        try:
-            # 尝试直接解析
-            parsed = json.loads(text[start_idx:end_idx+1])
-            return json.dumps(parsed, ensure_ascii=False, indent=2)
-        except json.JSONDecodeError as e:
-            logger.warning(f"初始 JSON 解析失败，尝试修复: {e}")
-            return self._repair_json(text[start_idx:end_idx+1], e)
-
-    def _repair_json(self, text: str, original_error: Exception) -> str:
-        """
-        尝试修复无效的 JSON 文本
-
-        Args:
-            text: 需要修复的文本
-            original_error: 原始错误信息
-
-        Returns:
-            修复后的 JSON 字符串
-        """
-        # 尝试常见的修复策略
-        repairs = [
-            # 添加缺失的引号
-            ('(\w+)\\s*:', '"\\1":'),  # key: value -> "key": value
-            # 修复单引号
-            ("'", '"'),
-            # 修复尾随逗号
-            (',\\s*}', '}'),
-            (',\\s*\\]', ']'),
-        ]
-
-        repaired_text = text
-        for pattern, replacement in repairs:
-            repaired_text = repaired_text.replace(pattern, replacement)
-
-        try:
-            parsed = json.loads(repaired_text)
-            logger.info("成功通过修复获得有效 JSON")
-            return json.dumps(parsed, ensure_ascii=False, indent=2)
-        except json.JSONDecodeError:
-            # 如果修复失败，返回一个基本的 JSON 结构
-            logger.error(f"无法修复 JSON: {original_error}")
-            fallback = {"error": "JSON parsing failed", "raw_response": text}
-            return json.dumps(fallback, ensure_ascii=False, indent=2)
-
     def generate_structured_output(self, prompt: str, schema: Dict[str, Any],
                                  system_prompt: Optional[str] = None,
                                  required_fields: Optional[list] = None) -> Dict[str, Any]:
-        """
-        生成结构化输出
-
-        Args:
-            prompt: 用户提示
-            schema: JSON Schema（用于指导输出结构）
-            system_prompt: 系统提示（可选）
-
-        Returns:
-            解析后的字典对象
-
-        Raises:
-            ClaudeResponseError: API 调用失败
-            JSONParsingError: JSON 解析失败且无法修复
-        """
+        """生成结构化输出。"""
         messages = [{"role": "user", "content": prompt}]
 
         system_content = (
@@ -136,7 +61,6 @@ class ClaudeClient(BaseLLMClient):
                 messages=messages
             )
 
-            # 提取文本内容
             content_text = ""
             for block in response.content:
                 if hasattr(block, 'text') and block.text:
@@ -145,48 +69,18 @@ class ClaudeClient(BaseLLMClient):
             if not content_text.strip():
                 raise ClaudeResponseError("API 返回了空内容")
 
-            # 尝试解析 JSON
-            try:
-                json_str = self._ensure_json_format(content_text)
-                parsed_data = json.loads(json_str)
-                logger.debug("成功解析结构化输出")
-                return parsed_data
+            return parse_llm_json(content_text)
 
-            except (json.JSONDecodeError, JSONParsingError) as e:
-                logger.error("JSON 解析失败:")
-                import traceback
-                traceback.print_exc()
-                # 使用安全解析作为最后的 fallback
-                fallback_data = safe_parse_json(content_text)
-                if "error" in fallback_data:
-                    raise JSONParsingError(f"无法解析 Claude 响应为 JSON: {str(e)}") from e
-                return fallback_data
-
+        except JSONParsingError:
+            raise
         except Exception as e:
-            logger.error("Claude API 错误:")
-            import traceback
-            traceback.print_exc()
             if "anthropic" in str(type(e)):
                 raise ClaudeResponseError(f"Claude API 调用失败: {str(e)}") from e
-            else:
-                raise ClaudeResponseError(f"意外的错误: {str(e)}") from e
+            raise ClaudeResponseError(f"意外的错误: {str(e)}") from e
 
     def generate_text(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """
-        生成普通文本输出
-
-        Args:
-            prompt: 用户提示
-            system_prompt: 系统提示（可选）
-
-        Returns:
-            生成的文本
-
-        Raises:
-            ClaudeResponseError: API 调用失败
-        """
+        """生成纯文本输出。"""
         messages = [{"role": "user", "content": prompt}]
-
         system_content = system_prompt if system_prompt else None
 
         try:
@@ -203,16 +97,12 @@ class ClaudeClient(BaseLLMClient):
                 if hasattr(block, 'text') and block.text:
                     content_text += block.text
 
-            return content_text.strip() if content_text.strip() else ""
+            return content_text.strip()
 
         except Exception as e:
-            logger.error("Claude API 错误:")
-            import traceback
-            traceback.print_exc()
             if "anthropic" in str(type(e)):
                 raise ClaudeResponseError(f"Claude API 调用失败: {str(e)}") from e
-            else:
-                raise ClaudeResponseError(f"意外的错误: {str(e)}") from e
+            raise ClaudeResponseError(f"意外的错误: {str(e)}") from e
 
 
 # 注册 Claude 提供商
