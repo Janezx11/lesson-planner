@@ -1,4 +1,4 @@
-"""缓存模块测试"""
+"""教案库模块测试"""
 
 import pytest
 import shutil
@@ -11,18 +11,22 @@ from cache import (
     cache_stats,
     list_cached,
     delete_cached,
-    CACHE_DIR,
+    add_reflection,
+    get_reflections_for_topic,
+    format_reflections_for_prompt,
+    list_reflections,
+    PLANS_DIR,
 )
 
 
 @pytest.fixture(autouse=True)
 def clean_cache():
-    """每个测试前后清理缓存目录"""
-    if CACHE_DIR.exists():
-        shutil.rmtree(CACHE_DIR)
+    """每个测试前后清理教案库目录"""
+    if PLANS_DIR.exists():
+        shutil.rmtree(PLANS_DIR)
     yield
-    if CACHE_DIR.exists():
-        shutil.rmtree(CACHE_DIR)
+    if PLANS_DIR.exists():
+        shutil.rmtree(PLANS_DIR)
 
 
 class TestCacheKey:
@@ -179,3 +183,59 @@ class TestDeleteCached:
         delete_cached("k1")
         assert get_cached("k1") is None
         assert get_cached("k2") is not None
+
+
+class TestReflections:
+    """课后反思测试"""
+
+    def test_add_and_read_reflection(self):
+        set_cached("k1", {"metadata": {"topic": "二次函数", "grade": "高二", "llm_provider": "mimo", "generated_at": "2026-01-01"}})
+        assert add_reflection("k1", what_worked="小组讨论效果好", what_failed="导入太长") is True
+
+        reflections = list_reflections("k1")
+        assert len(reflections) == 1
+        assert reflections[0]["what_worked"] == "小组讨论效果好"
+
+    def test_multiple_reflections(self):
+        set_cached("k1", {"metadata": {"topic": "测试", "grade": "高一", "llm_provider": "mimo", "generated_at": "2026-01-01"}})
+        add_reflection("k1", what_worked="第一次好")
+        add_reflection("k1", what_worked="第二次好")
+
+        reflections = list_reflections("k1")
+        assert len(reflections) == 2
+
+    def test_add_reflection_nonexistent_key(self):
+        assert add_reflection("no_such_key", what_worked="test") is False
+
+    def test_get_reflections_for_topic(self):
+        set_cached("k1", {"metadata": {"topic": "二次函数", "grade": "高二", "llm_provider": "mimo", "generated_at": "2026-01-01"}})
+        set_cached("k2", {"metadata": {"topic": "二次函数", "grade": "高一", "llm_provider": "mimo", "generated_at": "2026-01-02"}})
+        add_reflection("k1", what_worked="高二效果好")
+        add_reflection("k2", what_worked="高一效果好")
+
+        results = get_reflections_for_topic("二次函数")
+        assert len(results) == 2
+
+    def test_get_reflections_no_match(self):
+        set_cached("k1", {"metadata": {"topic": "物理", "grade": "高一", "llm_provider": "mimo", "generated_at": "2026-01-01"}})
+        add_reflection("k1", what_worked="物理好")
+
+        results = get_reflections_for_topic("数学")
+        assert len(results) == 0
+
+    def test_format_reflections_empty(self):
+        assert format_reflections_for_prompt([]) == ""
+
+    def test_format_reflections_with_content(self):
+        reflections = [{
+            "_topic": "二次函数",
+            "_grade": "高二",
+            "what_worked": "小组讨论",
+            "what_failed": "导入太长",
+            "student_reaction": "兴趣高",
+            "next_adjustment": "缩短导入",
+        }]
+        text = format_reflections_for_prompt(reflections)
+        assert "历史教学反思" in text
+        assert "小组讨论" in text
+        assert "导入太长" in text

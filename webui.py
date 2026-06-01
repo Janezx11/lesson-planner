@@ -19,7 +19,7 @@ load_dotenv()
 import gradio as gr
 
 from app import run_workflow, export_outputs
-from cache import clear_cache, cache_stats, list_cached, delete_cached, get_cached, get_cache_key, set_cached
+from cache import clear_cache, cache_stats, list_cached, delete_cached, get_cached, get_cache_key, set_cached, get_plans_dir, add_reflection, list_reflections
 from models.runtime import TeacherRuntimePlan, ClassroomSection, HomeworkTask
 from renderers.markdown_renderer import render_markdown
 from compiler.pedagogical_compiler import score_runtime_plan, improve_existing_plan, regenerate_section
@@ -308,11 +308,120 @@ _REGEN_PRESETS = [
 ]
 
 
+# ─── 自定义 CSS ────────────────────────────────────────────────
+
+_CUSTOM_CSS = """
+/* 标题区域 */
+.app-header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d6a9f 100%);
+    color: white;
+    padding: 24px 32px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+.app-header h1 {
+    color: white !important;
+    font-size: 1.8em !important;
+    margin: 0 0 4px 0 !important;
+}
+.app-header p {
+    color: rgba(255,255,255,0.85) !important;
+    margin: 0 !important;
+    font-size: 0.95em;
+}
+
+/* Tab 栏 */
+.tabs > .tab-nav {
+    border-bottom: 2px solid #e2e8f0;
+}
+.tabs > .tab-nav > button.selected {
+    border-bottom: 3px solid #2d6a9f !important;
+    color: #1e3a5f !important;
+    font-weight: 600;
+}
+
+/* 预览区 */
+.preview-box {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    background: #fafbfc;
+    min-height: 400px;
+}
+
+/* 状态标签 */
+.status-ok {
+    background: #d4edda;
+    color: #155724;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.9em;
+}
+.status-err {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.9em;
+}
+
+/* 按钮 */
+.btn-primary {
+    background: linear-gradient(135deg, #2d6a9f, #1e3a5f) !important;
+    border: none !important;
+    transition: box-shadow 0.2s;
+}
+.btn-primary:hover {
+    box-shadow: 0 4px 12px rgba(45,106,159,0.4) !important;
+}
+
+/* 快速指令按钮 */
+.preset-btn {
+    border: 1px solid #d0d7de !important;
+    background: white !important;
+    transition: all 0.15s;
+    font-size: 0.85em !important;
+}
+.preset-btn:hover {
+    border-color: #2d6a9f !important;
+    color: #2d6a9f !important;
+    background: #f0f7ff !important;
+}
+
+/* 下载区卡片 */
+.download-card {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 8px;
+}
+"""
+
+
 # ─── 构建 UI ──────────────────────────────────────────────────
 
 def build_ui():
-    with gr.Blocks(title="AI Teaching Copilot") as demo:
-        gr.Markdown("# AI Teaching Copilot\n智能教案生成助手")
+    custom_theme = gr.themes.Soft(
+        primary_hue="blue",
+        neutral_hue="slate",
+    ).set(
+        button_primary_background_fill="linear-gradient(135deg, #2d6a9f, #1e3a5f)",
+        button_primary_background_fill_hover="linear-gradient(135deg, #3a7fc4, #2d6a9f)",
+        button_primary_border_color="#1e3a5f",
+        button_secondary_background_fill="white",
+        button_secondary_background_fill_hover="#f0f7ff",
+        button_secondary_border_color="#d0d7de",
+        button_secondary_border_color_hover="#2d6a9f",
+    )
+
+    with gr.Blocks(title="AI Teaching Copilot", css=_CUSTOM_CSS, theme=custom_theme) as demo:
+        gr.HTML("""
+        <div class="app-header">
+            <h1>AI Teaching Copilot</h1>
+            <p>智能教案生成助手 — 输入主题，AI 为你设计完整的教学方案</p>
+        </div>
+        """)
 
         # 共享状态
         current_result = gr.State(None)  # 当前教案的完整 result dict
@@ -322,20 +431,22 @@ def build_ui():
             # ── Tab 1: 生成教案 ──
             with gr.Tab("生成教案"):
                 with gr.Row():
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, min_width=320):
+                        gr.Markdown("### 基本设置")
                         topic_input = gr.Textbox(label="教学主题", placeholder="例如：二次函数", lines=1)
                         grade_input = gr.Textbox(label="年级", placeholder="例如：高二", lines=1)
-                        provider_input = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
-                        duration_input = gr.Dropdown(label="课时时长", choices=["40分钟", "45分钟", "90分钟"], value="45分钟")
+                        with gr.Row():
+                            provider_input = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
+                            duration_input = gr.Dropdown(label="课时时长", choices=["40分钟", "45分钟", "90分钟"], value="45分钟")
                         level_input = gr.Dropdown(label="班级水平", choices=["快班", "普通", "基础"], value="普通")
                         export_input = gr.CheckboxGroup(label="导出格式", choices=["json", "md", "docx"], value=["json", "md", "docx"])
                         generate_btn = gr.Button("生成教案", variant="primary", size="lg")
-                        gen_status = gr.Textbox(label="状态", interactive=False)
+                        gen_status = gr.Textbox(label="状态", interactive=False, show_label=False)
 
-                        gr.Markdown("### 下载")
-                        json_file = gr.File(label="JSON", interactive=False)
-                        md_file = gr.File(label="Markdown", interactive=False)
-                        docx_file = gr.File(label="DOCX", interactive=False)
+                        with gr.Accordion("下载文件", open=False):
+                            json_file = gr.File(label="JSON", interactive=False)
+                            md_file = gr.File(label="Markdown", interactive=False)
+                            docx_file = gr.File(label="DOCX", interactive=False)
 
                     with gr.Column(scale=2):
                         gen_output_md = gr.Markdown(label="教案预览", value="*点击「生成教案」开始*")
@@ -343,27 +454,36 @@ def build_ui():
             # ── Tab 2: 历史教案 ──
             with gr.Tab("历史教案"):
                 with gr.Row():
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, min_width=320):
+                        gr.Markdown("### 已保存的教案")
                         history_table = gr.Dataframe(
                             headers=_HISTORY_COLUMNS,
                             datatype=["str", "str", "str", "str", "str", "number"],
-                            label="历史教案",
                             interactive=False,
                             value=_build_history_table(),
                         )
                         with gr.Row():
                             refresh_btn = gr.Button("刷新列表", size="sm")
                             delete_btn = gr.Button("删除选中", variant="stop", size="sm")
-                        history_status = gr.Textbox(label="操作结果", interactive=False)
+                            open_folder_btn = gr.Button("打开文件夹", size="sm")
+                        history_status = gr.Textbox(label="操作结果", interactive=False, show_label=False)
+
+                        with gr.Accordion("课后反思", open=False):
+                            gr.Markdown("*上完课后记录教学效果，系统会在下次生成时参考*")
+                            ref_what_worked = gr.Textbox(label="效果好的环节", lines=2, placeholder="例如：小组讨论环节学生参与度很高")
+                            ref_what_failed = gr.Textbox(label="效果差的环节", lines=2, placeholder="例如：导入环节学生注意力不集中")
+                            ref_student_reaction = gr.Textbox(label="学生整体反应", lines=2, placeholder="例如：对实际案例很感兴趣")
+                            ref_next_adjustment = gr.Textbox(label="下次调整建议", lines=2, placeholder="例如：增加动手实验环节")
+                            save_reflection_btn = gr.Button("保存反思", variant="primary", size="sm")
+                            reflection_status = gr.Textbox(label="状态", interactive=False, show_label=False)
 
                     with gr.Column(scale=2):
                         history_preview = gr.Markdown(label="教案预览", value="*点击左侧列表中的教案查看*")
 
             # ── Tab 3: 编辑教案 ──
             with gr.Tab("编辑教案"):
-                gr.Markdown("*先在「生成教案」或「历史教案」中加载一个教案，再切换到此页面编辑*")
                 with gr.Row():
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, min_width=320):
                         load_for_edit_btn = gr.Button("加载当前教案", variant="secondary")
 
                         edit_objectives = gr.Textbox(label="教学目标（每行一个）", lines=5, placeholder="每行一个教学目标")
@@ -372,71 +492,73 @@ def build_ui():
                         edit_interactions = gr.Textbox(label="课堂互动", lines=6, placeholder="【互动1】\n触发: ...\n提问: ...")
                         edit_summary = gr.Textbox(label="课堂小结", lines=3)
 
-                        save_btn = gr.Button("保存编辑", variant="primary")
-                        edit_status = gr.Textbox(label="状态", interactive=False)
-
-                        gr.Markdown("---\n### 局部重新生成")
-                        regen_section_idx = gr.Dropdown(label="选择环节", choices=[], interactive=True, info="加载教案后自动填充")
-                        regen_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
-                        regen_instructions = gr.Textbox(label="改进指令", placeholder="例如：增加小组讨论环节、简化教师活动", lines=2)
                         with gr.Row():
-                            regen_preset_btns = []
-                            for label, text in _REGEN_PRESETS:
-                                btn = gr.Button(value=label, size="sm", variant="secondary")
-                                regen_preset_btns.append((btn, text))
-                        regen_btn = gr.Button("重新生成此环节", variant="secondary")
-                        regen_status = gr.Textbox(label="重新生成状态", interactive=False)
+                            save_btn = gr.Button("保存编辑", variant="primary")
+                            edit_export_btn = gr.Button("导出 JSON", variant="secondary")
+                        edit_status = gr.Textbox(label="状态", interactive=False, show_label=False)
+
+                        with gr.Accordion("局部重新生成", open=False):
+                            regen_section_idx = gr.Dropdown(label="选择环节", choices=[], interactive=True, info="加载教案后自动填充")
+                            regen_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
+                            regen_instructions = gr.Textbox(label="改进指令", placeholder="例如：增加小组讨论环节、简化教师活动", lines=2)
+                            with gr.Row():
+                                regen_preset_btns = []
+                                for label, text in _REGEN_PRESETS:
+                                    btn = gr.Button(value=label, size="sm", variant="secondary")
+                                    regen_preset_btns.append((btn, text))
+                            regen_btn = gr.Button("重新生成此环节", variant="secondary")
+                            regen_status = gr.Textbox(label="状态", interactive=False, show_label=False)
 
                     with gr.Column(scale=2):
                         edit_preview = gr.Markdown(label="预览", value="*加载教案后可编辑*")
-                        edit_export_btn = gr.Button("导出编辑后版本", variant="secondary")
-                        edit_json_file = gr.File(label="导出 JSON", interactive=False)
+                        edit_json_file = gr.File(label="导出 JSON", interactive=False, visible=False)
 
             # ── Tab 4: 导入教案 ──
             with gr.Tab("导入教案"):
-                gr.Markdown("### 导入现有教案进行改进\n粘贴教案 JSON 或上传文件，输入改进指令，AI 将帮你优化。")
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        import_json_input = gr.Textbox(label="粘贴教案 JSON", lines=12, placeholder="粘贴完整的教案 JSON 数据...")
+                    with gr.Column(scale=1, min_width=320):
+                        gr.Markdown("### 导入教案")
+                        import_json_input = gr.Textbox(label="粘贴教案 JSON", lines=10, placeholder="粘贴完整的教案 JSON 数据...")
                         import_file_input = gr.File(label="或上传 JSON 文件", file_types=[".json"])
                         import_topic = gr.Textbox(label="教学主题", placeholder="例如：二次函数")
                         import_grade = gr.Textbox(label="年级", placeholder="例如：高二")
                         import_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
-                        import_instructions = gr.Textbox(label="改进指令", lines=3, placeholder="例如：增加互动环节、练习题太简单提高难度、加入更多生活案例")
-                        gr.Markdown("**快速指令：**")
+                        import_instructions = gr.Textbox(label="改进指令", lines=2, placeholder="例如：增加互动环节、提高难度")
+
+                        gr.Markdown("**快速指令**")
                         with gr.Row():
                             preset_btns = []
                             for label, text in _INSTRUCTION_PRESETS:
                                 btn = gr.Button(value=label, size="sm", variant="secondary")
                                 preset_btns.append((btn, text))
                         import_btn = gr.Button("开始改进", variant="primary", size="lg")
-                        import_status = gr.Textbox(label="状态", interactive=False)
+                        import_status = gr.Textbox(label="状态", interactive=False, show_label=False)
 
-                        gr.Markdown("### 下载")
-                        import_json_file = gr.File(label="导出 JSON", interactive=False)
-                        import_md_file = gr.File(label="导出 Markdown", interactive=False)
-                        import_docx_file = gr.File(label="导出 DOCX", interactive=False)
+                        with gr.Accordion("下载文件", open=False):
+                            import_json_file = gr.File(label="导出 JSON", interactive=False)
+                            import_md_file = gr.File(label="导出 Markdown", interactive=False)
+                            import_docx_file = gr.File(label="导出 DOCX", interactive=False)
 
                     with gr.Column(scale=2):
                         import_preview = gr.Markdown(label="改进后预览", value="*粘贴教案并输入改进指令后点击「开始改进」*")
 
             # ── Tab 5: 单元计划 ──
             with gr.Tab("单元计划"):
-                gr.Markdown("### 单元整体教学设计\n输入主题和课时数，AI 自动生成单元规划 + 每课时教案，确保课时之间衔接自然。")
                 with gr.Row():
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, min_width=320):
+                        gr.Markdown("### 单元设置")
                         unit_topic = gr.Textbox(label="教学主题", placeholder="例如：二次函数")
                         unit_grade = gr.Textbox(label="年级", placeholder="例如：高二")
                         unit_lessons_count = gr.Slider(label="课时数", minimum=2, maximum=8, value=3, step=1)
                         unit_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
-                        unit_duration = gr.Dropdown(label="每课时时长", choices=["40分钟", "45分钟", "90分钟"], value="45分钟")
-                        unit_level = gr.Dropdown(label="班级水平", choices=["快班", "普通", "基础"], value="普通")
+                        with gr.Row():
+                            unit_duration = gr.Dropdown(label="每课时时长", choices=["40分钟", "45分钟", "90分钟"], value="45分钟")
+                            unit_level = gr.Dropdown(label="班级水平", choices=["快班", "普通", "基础"], value="普通")
                         unit_btn = gr.Button("生成单元计划", variant="primary", size="lg")
-                        unit_status = gr.Textbox(label="状态", interactive=False)
+                        unit_status = gr.Textbox(label="状态", interactive=False, show_label=False)
 
                     with gr.Column(scale=2):
                         unit_plan_preview = gr.Markdown(label="单元规划", value="*输入主题和课时数后点击「生成单元计划」*")
-                        unit_lessons_preview = gr.Markdown(label="各课时教案", value="*生成单元规划后自动开始生成各课时教案*")
 
         # ── 事件绑定 ──
 
@@ -486,6 +608,34 @@ def build_ui():
             return "删除失败", _build_history_table()
 
         delete_btn.click(fn=do_delete_history, inputs=[current_result], outputs=[history_status, history_table])
+
+        def do_open_folder():
+            import subprocess
+            folder = get_plans_dir()
+            try:
+                subprocess.Popen(f'explorer "{folder}"')
+                return f"已打开: {folder}"
+            except Exception as e:
+                return f"打开失败: {e}"
+
+        open_folder_btn.click(fn=do_open_folder, outputs=[history_status])
+
+        def do_save_reflection(current_res, worked, failed, reaction, adjustment):
+            if not current_res:
+                return "请先点击列表中的教案"
+            if not any([worked.strip(), failed.strip(), reaction.strip(), adjustment.strip()]):
+                return "请至少填写一项反思内容"
+            meta = current_res.get("metadata", {})
+            key = get_cache_key(meta.get("topic", ""), meta.get("grade", ""), meta.get("llm_provider", ""))
+            if add_reflection(key, worked.strip(), failed.strip(), reaction.strip(), adjustment.strip()):
+                return "反思已保存，下次生成同主题教案时会自动参考"
+            return "保存失败"
+
+        save_reflection_btn.click(
+            fn=do_save_reflection,
+            inputs=[current_result, ref_what_worked, ref_what_failed, ref_student_reaction, ref_next_adjustment],
+            outputs=[reflection_status],
+        )
 
         # Tab 3: 编辑
         def on_load_for_edit_update_dropdown(plan_d):
@@ -748,7 +898,6 @@ def main():
         server_name=args.host,
         server_port=args.port,
         share=args.share,
-        theme=gr.themes.Soft(),
     )
 
 

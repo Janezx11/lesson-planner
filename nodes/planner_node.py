@@ -184,6 +184,14 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
         prompt = f"{unit_context}\n\n{prompt}"
         logger.info("已注入单元上下文到 planner prompt")
 
+    # 历史教学反思注入
+    from cache import get_reflections_for_topic, format_reflections_for_prompt
+    reflections = get_reflections_for_topic(topic)
+    if reflections:
+        ref_text = format_reflections_for_prompt(reflections)
+        prompt = f"{ref_text}\n\n{prompt}"
+        logger.info(f"已注入 {len(reflections)} 条历史反思到 planner prompt")
+
     # 学科检测 & 指导注入
     subject = detect_subject(topic)
     subject_guidance = get_subject_guidance(subject)
