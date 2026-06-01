@@ -26,18 +26,20 @@ def _ensure_cache_dir() -> None:
     CACHE_DIR.mkdir(exist_ok=True)
 
 
-def get_cache_key(topic: str, grade: str, provider: str) -> str:
+def get_cache_key(topic: str, grade: str, provider: str, duration: str = "45分钟", level: str = "普通") -> str:
     """生成缓存 key。
 
     Args:
         topic: 教学主题
         grade: 年级
         provider: LLM 提供商
+        duration: 课时时长
+        level: 班级水平
 
     Returns:
         sha256 哈希的前 16 位
     """
-    raw = f"{topic.strip().lower()}|{grade.strip().lower()}|{provider.strip().lower()}"
+    raw = f"{topic.strip().lower()}|{grade.strip().lower()}|{provider.strip().lower()}|{duration.strip()}|{level.strip()}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 

@@ -49,6 +49,9 @@ class TeachingState(BaseModel):
 
     # 配置字段
     provider: str = Field(default="claude", description="LLM 提供商 (claude, qwen, longcat)")
+    duration: str = Field(default="45分钟", description="课时时长（如 40分钟、45分钟、90分钟）")
+    level: str = Field(default="普通", description="班级水平：快班、普通、基础")
+    unit_context: str = Field(default="", description="单元上下文（多课时生成时注入）")
 
     # 节点输出字段（由各节点填充）
     # 使用 Dict[str, Any] 以支持 LangGraph partial update
@@ -71,12 +74,22 @@ class TeachingState(BaseModel):
 
 
 # 默认状态初始化函数
-def create_initial_state(topic: str, grade: str, provider: str = "claude") -> TeachingState:
+def create_initial_state(
+    topic: str,
+    grade: str,
+    provider: str = "claude",
+    duration: str = "45分钟",
+    level: str = "普通",
+    unit_context: str = "",
+) -> TeachingState:
     """创建初始状态"""
     return TeachingState(
         topic=topic,
         grade=grade,
         provider=provider,
+        duration=duration,
+        level=level,
+        unit_context=unit_context,
         plan={},
         knowledge={},
         design={},

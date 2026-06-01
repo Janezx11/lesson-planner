@@ -161,8 +161,10 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
     """
     topic = state.topic
     grade = state.grade
+    duration = state.duration
+    level = state.level
 
-    logger.info(f"开始设计认知推进路线: 主题={topic}, 年级={grade}")
+    logger.info(f"开始设计认知推进路线: 主题={topic}, 年级={grade}, 时长={duration}, 水平={level}")
 
     # 读取 Prompt 模板
     try:
@@ -174,6 +176,13 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
 
     # 构建 Prompt
     prompt = prompt_template.replace('{topic}', topic).replace('{grade}', grade)
+    prompt = prompt.replace('{duration}', duration).replace('{level}', level)
+
+    # 单元上下文注入（多课时生成时）
+    unit_context = state.unit_context
+    if unit_context:
+        prompt = f"{unit_context}\n\n{prompt}"
+        logger.info("已注入单元上下文到 planner prompt")
 
     # 学科检测 & 指导注入
     subject = detect_subject(topic)
@@ -186,7 +195,7 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
         llm_state = {**state.model_dump(), 'temperature': 0.3}
         llm_client = get_llm_for_state(llm_state)
 
-        system_prompt = _get_system_prompt(subject_guidance)
+        system_prompt = _get_system_prompt(subject_guidance, duration, level)
 
         # 重试机制
         max_retries = 3
@@ -239,11 +248,21 @@ def planner_node(state: TeachingState) -> Dict[str, Any]:
         return _handle_error(state, str(e))
 
 
-def _get_system_prompt(subject_guidance=None) -> str:
+def _get_system_prompt(subject_guidance=None, duration="45分钟", level="普通") -> str:
     """获取系统提示"""
+    # 班级水平指导
+    level_guidance = {
+        "快班": "学生基础好、接受能力强，可以加快节奏、增加拓展内容、提高思维难度，减少基础铺垫。",
+        "普通": "学生基础中等，按正常节奏教学，兼顾基础和提高。",
+        "基础": "学生基础较弱，需要放慢节奏、增加基础讲解、多用直观例子、减少抽象推理。",
+    }
+    level_tip = level_guidance.get(level, level_guidance["普通"])
+
     base = (
         "你是一位深谙认知科学的教学设计师。\n"
         "你的任务是设计学生认知推进路线，而不是传统教学目录。\n\n"
+        f"【课时要求】总时长 {duration}，请合理分配各阶段时间。\n"
+        f"【班级水平】{level}。{level_tip}\n\n"
         "【核心理念】\n"
         "1. 不要使用'情境导入→新课讲解→课堂练习→总结提升'这种传统阶段\n"
         "2. 根据主题动态生成认知阶段：认知冲突、猜想建立、错误辨析、规律发现、模型建构、迁移应用等\n"

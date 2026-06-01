@@ -17,6 +17,7 @@ from .practice_question import PracticeQuestion
 from .homework_task import HomeworkTask
 from .blackboard_design import BlackboardDesign
 from .teacher_runtime_plan import TeacherRuntimePlan
+from .unit_plan import UnitPlan, LessonOutline
 
 __all__ = [
     "ClassroomSection",
@@ -25,4 +26,6 @@ __all__ = [
     "HomeworkTask",
     "BlackboardDesign",
     "TeacherRuntimePlan",
+    "UnitPlan",
+    "LessonOutline",
 ]

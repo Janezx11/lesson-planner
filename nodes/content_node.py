@@ -119,8 +119,9 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
     grade = state.grade
     plan = state.plan
     design = state.design
+    level = state.level
 
-    logger.info(f"开始生成教学内容: 主题={topic}, 年级={grade}")
+    logger.info(f"开始生成教学内容: 主题={topic}, 年级={grade}, 水平={level}")
 
     # 学科检测
     subject = detect_subject(topic)
@@ -145,7 +146,7 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
         # 调用 LLM API，使用 Pydantic Model 自动校验
         llm_client = get_llm_for_state(state.model_dump())
 
-        sys_prompt = _get_system_prompt(subject_guidance)
+        sys_prompt = _get_system_prompt(subject_guidance, level)
 
         # 重试机制
         max_retries = 3
@@ -198,11 +199,19 @@ def content_node(state: TeachingState) -> Dict[str, Any]:
         return _handle_error(state, str(e))
 
 
-def _get_system_prompt(subject_guidance=None) -> str:
+def _get_system_prompt(subject_guidance=None, level="普通") -> str:
     """获取系统提示"""
+    level_tips = {
+        "快班": "练习题侧重中等和拓展难度，基础题可以减少，增加思维挑战性题目。",
+        "普通": "练习题按基础、中等、拓展均衡分布。",
+        "基础": "练习题侧重基础和中等难度，拓展题可以减少，确保大部分学生能完成。",
+    }
+    level_tip = level_tips.get(level, level_tips["普通"])
+
     base = (
         "你是一位经验丰富的教学内容设计师。\n"
         "你的任务是根据教学计划骨架和互动设计，生成具体的教学内容。\n\n"
+        f"【班级水平】{level}。{level_tip}\n\n"
         "【重要规则】\n"
         "1. practice_design 必须包含分层练习题：basic（基础）、intermediate（中等）、advanced（拓展）\n"
         "2. 每道题必须包含：question（题目）、answer（答案）、purpose（考察目标）、time（建议用时）\n"

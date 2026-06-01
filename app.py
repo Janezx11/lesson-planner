@@ -13,14 +13,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-# Load environment variables from .env file
-if os.path.exists('.env'):
-    with open('.env', 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                os.environ[key] = value
+from utils.env import load_dotenv
+load_dotenv()
 
 from graph.state import create_initial_state, TeachingState
 from graph.builder import build_teaching_copilot_graph
@@ -39,7 +33,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_workflow(topic: str, grade: str, provider: str = "claude", use_cache: bool = True) -> Dict[str, Any]:
+def run_workflow(
+    topic: str,
+    grade: str,
+    provider: str = "claude",
+    duration: str = "45分钟",
+    level: str = "普通",
+    use_cache: bool = True,
+    unit_context: str = "",
+) -> Dict[str, Any]:
     """
     运行完整的教学方案设计工作流
 
@@ -47,19 +49,21 @@ def run_workflow(topic: str, grade: str, provider: str = "claude", use_cache: bo
         topic: 教学主题
         grade: 年级
         provider: LLM 提供商
+        duration: 课时时长（如 40分钟、45分钟、90分钟）
+        level: 班级水平（快班、普通、基础）
         use_cache: 是否使用缓存
+        unit_context: 单元上下文（多课时生成时注入）
 
     Returns:
         最终的教学方案字典
     """
-    logger.info(f"开始执行教学方案设计: 主题={topic}, 年级={grade}, 提供商={provider}")
+    logger.info(f"开始执行教学方案设计: 主题={topic}, 年级={grade}, 提供商={provider}, 时长={duration}, 水平={level}")
 
-    # 检查缓存
-    if use_cache:
-        cache_key = get_cache_key(topic, grade, provider)
+    # 检查缓存（key 包含 duration 和 level）
+    if use_cache and not unit_context:
+        cache_key = get_cache_key(topic, grade, provider, duration, level)
         cached = get_cached(cache_key)
         if cached is not None:
-            # 更新时间戳
             cached.setdefault("metadata", {})["generated_at"] = datetime.now().isoformat()
             logger.info("使用缓存结果")
             return cached
@@ -77,7 +81,7 @@ def run_workflow(topic: str, grade: str, provider: str = "claude", use_cache: bo
         return {"error": f"创建工作流失败: {str(e)}"}
 
     # 创建初始状态
-    initial_state = create_initial_state(topic, grade, provider)
+    initial_state = create_initial_state(topic, grade, provider, duration, level, unit_context)
 
     # 运行工作流
     try:
@@ -97,7 +101,9 @@ def run_workflow(topic: str, grade: str, provider: str = "claude", use_cache: bo
                 "generated_at": datetime.now().isoformat(),
                 "topic": topic,
                 "grade": grade,
-                "version": "4.0",
+                "duration": duration,
+                "level": level,
+                "version": "5.0",
                 "llm_provider": provider,
                 "errors_encountered": error_count
             },
@@ -114,6 +120,109 @@ def run_workflow(topic: str, grade: str, provider: str = "claude", use_cache: bo
     except Exception as e:
         logger.error(f"工作流执行失败: {e}")
         return {"error": f"工作流执行失败: {str(e)}"}
+
+
+def run_unit_workflow(
+    topic: str,
+    grade: str,
+    total_lessons: int,
+    provider: str = "mimo",
+    duration: str = "45分钟",
+    level: str = "普通",
+) -> Dict[str, Any]:
+    """运行单元计划工作流：先生成单元规划，再逐课时生成教案。
+
+    Args:
+        topic: 教学主题
+        grade: 年级
+        total_lessons: 总课时数
+        provider: LLM 提供商
+        duration: 每课时时长
+        level: 班级水平
+
+    Returns:
+        包含 unit_plan 和 lessons 的字典
+    """
+    from llm.factory import get_llm_for_state
+    from compiler.unit_compiler import generate_unit_plan, build_lesson_context, validate_unit_coherence
+    from models.runtime import TeacherRuntimePlan
+
+    logger.info(f"开始单元计划工作流: 主题={topic}, 课时数={total_lessons}")
+
+    os.environ["LLM_PROVIDER"] = provider
+    llm_client = get_llm_for_state({"provider": provider})
+
+    # Step 1: 生成单元计划
+    try:
+        unit_plan = generate_unit_plan(topic, grade, total_lessons, duration, level, llm_client)
+    except Exception as e:
+        logger.error(f"单元计划生成失败: {e}")
+        return {"error": f"单元计划生成失败: {str(e)}"}
+
+    # Step 2: 逐课时生成教案
+    lessons = []
+    previous_summary = None
+
+    for lesson_outline in unit_plan.lessons:
+        lesson_number = lesson_outline.lesson_number
+        logger.info(f"生成第 {lesson_number}/{total_lessons} 课时: {lesson_outline.title}")
+
+        # 构建单元上下文
+        unit_context = build_lesson_context(unit_plan, lesson_outline, previous_summary)
+
+        # 生成单课时教案
+        lesson_topic = f"{topic} - {lesson_outline.title}"
+        result = run_workflow(
+            topic=lesson_topic,
+            grade=grade,
+            provider=provider,
+            duration=lesson_outline.duration or duration,
+            level=level,
+            use_cache=False,
+            unit_context=unit_context,
+        )
+
+        if "error" in result:
+            logger.warning(f"第 {lesson_number} 课时生成失败: {result['error']}")
+            lessons.append({"error": result["error"], "lesson_number": lesson_number})
+        else:
+            lessons.append(result)
+            # 提取本课时小结，用于下一课时的上下文
+            runtime_data = result.get("teacher_runtime_plan", {})
+            if runtime_data:
+                previous_summary = runtime_data.get("summary", "")
+
+    # Step 3: 校验连贯性
+    valid_lessons = []
+    for l in lessons:
+        if "error" not in l:
+            runtime_data = l.get("teacher_runtime_plan", {})
+            if runtime_data:
+                try:
+                    valid_lessons.append(TeacherRuntimePlan.model_validate(runtime_data))
+                except Exception:
+                    pass
+
+    coherence_issues = []
+    if len(valid_lessons) > 1:
+        coherence_issues = validate_unit_coherence(unit_plan, valid_lessons)
+        if coherence_issues:
+            logger.warning(f"单元连贯性校验发现问题: {coherence_issues}")
+
+    return {
+        "unit_plan": unit_plan.model_dump(),
+        "lessons": lessons,
+        "coherence_issues": coherence_issues,
+        "metadata": {
+            "generated_at": datetime.now().isoformat(),
+            "topic": topic,
+            "grade": grade,
+            "total_lessons": total_lessons,
+            "provider": provider,
+            "duration": duration,
+            "level": level,
+        },
+    }
 
 
 def export_outputs(
@@ -278,6 +387,21 @@ def main():
     )
 
     parser.add_argument(
+        "--duration",
+        type=str,
+        default="45分钟",
+        help="课时时长（如 40分钟、45分钟、90分钟），默认 45分钟"
+    )
+
+    parser.add_argument(
+        "--level",
+        type=str,
+        default="普通",
+        choices=["快班", "普通", "基础"],
+        help="班级水平：快班、普通、基础，默认 普通"
+    )
+
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="启用详细日志输出"
@@ -315,7 +439,11 @@ def main():
 
     try:
         # 运行工作流
-        result = run_workflow(args.topic, args.grade, args.provider, use_cache=not args.no_cache)
+        result = run_workflow(
+            args.topic, args.grade, args.provider,
+            duration=args.duration, level=args.level,
+            use_cache=not args.no_cache,
+        )
 
         if "error" in result:
             print(f"ERROR: {result['error']}")

@@ -6,10 +6,12 @@ utils - 工具函数模块
 
 from .logger import get_logger
 from .parser import safe_parse_json, validate_required_fields, JSONParsingError
+from .env import load_dotenv
 
 __all__ = [
     'get_logger',
     'safe_parse_json',
     'validate_required_fields',
     'JSONParsingError',
+    'load_dotenv',
 ]

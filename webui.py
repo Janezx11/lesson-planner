@@ -13,14 +13,8 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-# Load .env before anything else
-if os.path.exists(".env"):
-    with open(".env", "r") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                os.environ[key] = value
+from utils.env import load_dotenv
+load_dotenv()
 
 import gradio as gr
 
@@ -28,7 +22,8 @@ from app import run_workflow, export_outputs
 from cache import clear_cache, cache_stats, list_cached, delete_cached, get_cached, get_cache_key, set_cached
 from models.runtime import TeacherRuntimePlan, ClassroomSection, HomeworkTask
 from renderers.markdown_renderer import render_markdown
-from compiler.pedagogical_compiler import score_runtime_plan
+from compiler.pedagogical_compiler import score_runtime_plan, improve_existing_plan, regenerate_section
+from llm.factory import get_llm_for_state
 
 
 # ─── 共享状态 ────────────────────────────────────────────────
@@ -58,13 +53,13 @@ def _plan_to_display_data(result: dict) -> dict:
 
 # ─── Tab 1: 生成教案 ─────────────────────────────────────────
 
-def generate_lesson_plan(topic, grade, provider, export_formats):
+def generate_lesson_plan(topic, grade, provider, duration, level, export_formats):
     if not topic.strip():
         return "请输入教学主题", "错误：主题为空", None, None, None, gr.update()
     if not grade.strip():
         return "请输入年级", "错误：年级为空", None, None, None, gr.update()
 
-    result = run_workflow(topic.strip(), grade.strip(), provider)
+    result = run_workflow(topic.strip(), grade.strip(), provider, duration=duration, level=level)
     if "error" in result:
         return f"生成失败：{result['error']}", "错误", None, None, None, gr.update()
 
@@ -294,6 +289,25 @@ def save_edits(
     return status, md, plan.model_dump()
 
 
+# ─── 常见指令模板 ─────────────────────────────────────────────
+
+_INSTRUCTION_PRESETS = [
+    ("增加课堂互动", "增加课堂互动环节，多设计提问和讨论"),
+    ("提高练习难度", "练习题太简单，提高难度，增加拓展题"),
+    ("增加生活案例", "增加与学生日常生活相关的案例和情境"),
+    ("简化内容", "内容过多，精简教师活动，突出重点"),
+    ("增加小组讨论", "增加小组合作探究环节，让学生多动手"),
+    ("调整时间分配", "调整各环节时间分配，重点环节给更多时间"),
+]
+
+_REGEN_PRESETS = [
+    ("增加互动", "在这个环节中增加师生互动和提问"),
+    ("简化活动", "简化教师活动，突出核心讲解"),
+    ("增加学生参与", "增加学生动手/讨论/展示的活动"),
+    ("缩短时长", "精简内容，缩短这个环节的时间"),
+]
+
+
 # ─── 构建 UI ──────────────────────────────────────────────────
 
 def build_ui():
@@ -312,6 +326,8 @@ def build_ui():
                         topic_input = gr.Textbox(label="教学主题", placeholder="例如：二次函数", lines=1)
                         grade_input = gr.Textbox(label="年级", placeholder="例如：高二", lines=1)
                         provider_input = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
+                        duration_input = gr.Dropdown(label="课时时长", choices=["40分钟", "45分钟", "90分钟"], value="45分钟")
+                        level_input = gr.Dropdown(label="班级水平", choices=["快班", "普通", "基础"], value="普通")
                         export_input = gr.CheckboxGroup(label="导出格式", choices=["json", "md", "docx"], value=["json", "md", "docx"])
                         generate_btn = gr.Button("生成教案", variant="primary", size="lg")
                         gen_status = gr.Textbox(label="状态", interactive=False)
@@ -359,23 +375,87 @@ def build_ui():
                         save_btn = gr.Button("保存编辑", variant="primary")
                         edit_status = gr.Textbox(label="状态", interactive=False)
 
+                        gr.Markdown("---\n### 局部重新生成")
+                        regen_section_idx = gr.Dropdown(label="选择环节", choices=[], interactive=True, info="加载教案后自动填充")
+                        regen_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
+                        regen_instructions = gr.Textbox(label="改进指令", placeholder="例如：增加小组讨论环节、简化教师活动", lines=2)
+                        with gr.Row():
+                            regen_preset_btns = []
+                            for label, text in _REGEN_PRESETS:
+                                btn = gr.Button(value=label, size="sm", variant="secondary")
+                                regen_preset_btns.append((btn, text))
+                        regen_btn = gr.Button("重新生成此环节", variant="secondary")
+                        regen_status = gr.Textbox(label="重新生成状态", interactive=False)
+
                     with gr.Column(scale=2):
                         edit_preview = gr.Markdown(label="预览", value="*加载教案后可编辑*")
                         edit_export_btn = gr.Button("导出编辑后版本", variant="secondary")
                         edit_json_file = gr.File(label="导出 JSON", interactive=False)
+
+            # ── Tab 4: 导入教案 ──
+            with gr.Tab("导入教案"):
+                gr.Markdown("### 导入现有教案进行改进\n粘贴教案 JSON 或上传文件，输入改进指令，AI 将帮你优化。")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        import_json_input = gr.Textbox(label="粘贴教案 JSON", lines=12, placeholder="粘贴完整的教案 JSON 数据...")
+                        import_file_input = gr.File(label="或上传 JSON 文件", file_types=[".json"])
+                        import_topic = gr.Textbox(label="教学主题", placeholder="例如：二次函数")
+                        import_grade = gr.Textbox(label="年级", placeholder="例如：高二")
+                        import_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
+                        import_instructions = gr.Textbox(label="改进指令", lines=3, placeholder="例如：增加互动环节、练习题太简单提高难度、加入更多生活案例")
+                        gr.Markdown("**快速指令：**")
+                        with gr.Row():
+                            preset_btns = []
+                            for label, text in _INSTRUCTION_PRESETS:
+                                btn = gr.Button(value=label, size="sm", variant="secondary")
+                                preset_btns.append((btn, text))
+                        import_btn = gr.Button("开始改进", variant="primary", size="lg")
+                        import_status = gr.Textbox(label="状态", interactive=False)
+
+                        gr.Markdown("### 下载")
+                        import_json_file = gr.File(label="导出 JSON", interactive=False)
+                        import_md_file = gr.File(label="导出 Markdown", interactive=False)
+                        import_docx_file = gr.File(label="导出 DOCX", interactive=False)
+
+                    with gr.Column(scale=2):
+                        import_preview = gr.Markdown(label="改进后预览", value="*粘贴教案并输入改进指令后点击「开始改进」*")
+
+            # ── Tab 5: 单元计划 ──
+            with gr.Tab("单元计划"):
+                gr.Markdown("### 单元整体教学设计\n输入主题和课时数，AI 自动生成单元规划 + 每课时教案，确保课时之间衔接自然。")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        unit_topic = gr.Textbox(label="教学主题", placeholder="例如：二次函数")
+                        unit_grade = gr.Textbox(label="年级", placeholder="例如：高二")
+                        unit_lessons_count = gr.Slider(label="课时数", minimum=2, maximum=8, value=3, step=1)
+                        unit_provider = gr.Dropdown(label="LLM 提供商", choices=["mimo", "claude", "qwen", "longcat"], value="mimo")
+                        unit_duration = gr.Dropdown(label="每课时时长", choices=["40分钟", "45分钟", "90分钟"], value="45分钟")
+                        unit_level = gr.Dropdown(label="班级水平", choices=["快班", "普通", "基础"], value="普通")
+                        unit_btn = gr.Button("生成单元计划", variant="primary", size="lg")
+                        unit_status = gr.Textbox(label="状态", interactive=False)
+
+                    with gr.Column(scale=2):
+                        unit_plan_preview = gr.Markdown(label="单元规划", value="*输入主题和课时数后点击「生成单元计划」*")
+                        unit_lessons_preview = gr.Markdown(label="各课时教案", value="*生成单元规划后自动开始生成各课时教案*")
 
         # ── 事件绑定 ──
 
         # Tab 1: 生成
         generate_btn.click(
             fn=generate_lesson_plan,
-            inputs=[topic_input, grade_input, provider_input, export_input],
+            inputs=[topic_input, grade_input, provider_input, duration_input, level_input, export_input],
             outputs=[gen_output_md, gen_status, json_file, md_file, docx_file, history_table],
         ).then(
             fn=lambda r: r,
             inputs=[gen_output_md],
             outputs=[gen_output_md],
         )
+
+        # 预设按钮：点击后将指令填入文本框
+        for btn, text in preset_btns:
+            btn.click(fn=lambda t=text: t, outputs=[import_instructions])
+        for btn, text in regen_preset_btns:
+            btn.click(fn=lambda t=text: t, outputs=[regen_instructions])
 
         # Tab 2: 历史列表交互
         def on_history_select(evt: gr.SelectData):
@@ -408,6 +488,14 @@ def build_ui():
         delete_btn.click(fn=do_delete_history, inputs=[current_result], outputs=[history_status, history_table])
 
         # Tab 3: 编辑
+        def on_load_for_edit_update_dropdown(plan_d):
+            """加载教案时同步更新环节下拉框"""
+            if not plan_d:
+                return gr.update(choices=[], value=None)
+            plan = TeacherRuntimePlan.model_validate(plan_d)
+            choices = [f"{i}: {s.title}" for i, s in enumerate(plan.sections)]
+            return gr.update(choices=choices, value=choices[0] if choices else None)
+
         load_for_edit_btn.click(
             fn=load_plan_for_edit,
             inputs=[current_plan_dict],
@@ -416,6 +504,10 @@ def build_ui():
             fn=lambda plan_d: _plan_to_display_data({"teacher_runtime_plan": plan_d})["md"] if plan_d else "请先加载教案",
             inputs=[current_plan_dict],
             outputs=[edit_preview],
+        ).then(
+            fn=on_load_for_edit_update_dropdown,
+            inputs=[current_plan_dict],
+            outputs=[regen_section_idx],
         )
 
         def do_save_edits(plan_d, obj, sec, hw, inter, summ):
@@ -438,6 +530,208 @@ def build_ui():
             return path
 
         edit_export_btn.click(fn=do_export_edited, inputs=[current_plan_dict], outputs=[edit_json_file])
+
+        # ── Tab 3: 局部重新生成 ──
+
+        def do_regen_section(plan_d, section_choice, provider, instructions):
+            if not plan_d:
+                return "请先加载教案", gr.update()
+            if not section_choice:
+                return "请选择一个环节", gr.update()
+            if not instructions.strip():
+                return "请输入改进指令", gr.update()
+
+            try:
+                section_index = int(section_choice.split(":")[0])
+            except (ValueError, IndexError):
+                return "环节选择格式错误", gr.update()
+
+            plan = TeacherRuntimePlan.model_validate(plan_d)
+            state = {"provider": provider}
+            llm_client = get_llm_for_state(state)
+
+            try:
+                new_plan = regenerate_section(plan, section_index, instructions.strip(), llm_client)
+                md = render_markdown(new_plan)
+                quality = score_runtime_plan(new_plan)
+                status = f"环节已重新生成 | 评分: {quality['total']}/{quality['max']} ({quality['grade']})"
+                return status, md, new_plan.model_dump()
+            except Exception as e:
+                return f"重新生成失败: {e}", gr.update(), gr.update()
+
+        regen_btn.click(
+            fn=do_regen_section,
+            inputs=[current_plan_dict, regen_section_idx, regen_provider, regen_instructions],
+            outputs=[regen_status, edit_preview, current_plan_dict],
+        )
+
+        # ── Tab 4: 导入教案 ──
+
+        def _load_json_from_text_or_file(json_text, uploaded_file):
+            """从文本框或上传文件加载 JSON"""
+            if uploaded_file is not None:
+                try:
+                    with open(uploaded_file.name, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception as e:
+                    raise ValueError(f"读取文件失败: {e}")
+
+            if not json_text or not json_text.strip():
+                raise ValueError("请粘贴教案 JSON 或上传文件")
+
+            try:
+                return json.loads(json_text)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"JSON 解析失败: {e}")
+
+        def do_import_improve(json_text, uploaded_file, topic, grade, provider, instructions):
+            if not topic.strip():
+                return "请输入教学主题", "", None, gr.update(), gr.update(), gr.update()
+            if not grade.strip():
+                return "请输入年级", "", None, gr.update(), gr.update(), gr.update()
+            if not instructions.strip():
+                return "请输入改进指令", "", None, gr.update(), gr.update(), gr.update()
+
+            try:
+                raw_data = _load_json_from_text_or_file(json_text, uploaded_file)
+            except ValueError as e:
+                return str(e), "", None, gr.update(), gr.update(), gr.update()
+
+            # 解析为 TeacherRuntimePlan
+            try:
+                # 兼容两种格式：直接是 plan dict，或嵌套在 teacher_runtime_plan 中
+                if "teacher_runtime_plan" in raw_data:
+                    plan_data = raw_data["teacher_runtime_plan"]
+                elif "sections" in raw_data:
+                    plan_data = raw_data
+                else:
+                    return "JSON 中找不到教案数据（需要 sections 字段或 teacher_runtime_plan 字段）", "", None, gr.update(), gr.update(), gr.update()
+
+                existing_plan = TeacherRuntimePlan.model_validate(plan_data)
+            except Exception as e:
+                return f"教案数据解析失败: {e}", "", None, gr.update(), gr.update(), gr.update()
+
+            # 调用 LLM 改进
+            state = {"provider": provider}
+            llm_client = get_llm_for_state(state)
+
+            try:
+                improved = improve_existing_plan(existing_plan, instructions.strip(), topic.strip(), grade.strip(), llm_client)
+            except Exception as e:
+                return f"改进失败: {e}", "", None, gr.update(), gr.update(), gr.update()
+
+            # 导出
+            output_dir = tempfile.mkdtemp(prefix="import_")
+            exported = export_outputs(
+                {"teacher_runtime_plan": improved.model_dump(), "metadata": {"topic": topic, "grade": grade, "llm_provider": provider}},
+                output_dir,
+                ["json", "md", "docx"],
+                topic,
+            )
+
+            display = _plan_to_display_data({"teacher_runtime_plan": improved.model_dump()})
+            history_data = _build_history_table()
+
+            return (
+                display["status"],
+                display["md"],
+                improved.model_dump(),
+                exported.get("json"),
+                exported.get("md"),
+                exported.get("docx"),
+            )
+
+        import_btn.click(
+            fn=do_import_improve,
+            inputs=[import_json_input, import_file_input, import_topic, import_grade, import_provider, import_instructions],
+            outputs=[import_status, import_preview, current_plan_dict, import_json_file, import_md_file, import_docx_file],
+        )
+
+        # ── Tab 5: 单元计划 ──
+
+        def do_unit_plan(topic, grade, total_lessons, provider, duration, level):
+            if not topic.strip():
+                return "请输入教学主题", "*请输入教学主题*"
+            if not grade.strip():
+                return "请输入年级", "*请输入年级*"
+
+            from app import run_unit_workflow
+            from models.runtime import UnitPlan
+
+            total_lessons = int(total_lessons)
+            result = run_unit_workflow(
+                topic=topic.strip(),
+                grade=grade.strip(),
+                total_lessons=total_lessons,
+                provider=provider,
+                duration=duration,
+                level=level,
+            )
+
+            if "error" in result:
+                return f"生成失败: {result['error']}", "*生成失败*"
+
+            # 渲染单元规划
+            unit_data = result.get("unit_plan", {})
+            unit = UnitPlan.model_validate(unit_data)
+
+            plan_md = f"## {unit.unit_title}\n\n"
+            plan_md += f"**年级**: {unit.grade} | **课时**: {unit.total_lessons} 课时\n\n"
+            plan_md += f"**单元目标**: {'；'.join(unit.unit_objectives)}\n\n"
+            if unit.key_points:
+                plan_md += f"**重点**: {'；'.join(unit.key_points)}\n\n"
+            if unit.difficult_points:
+                plan_md += f"**难点**: {'；'.join(unit.difficult_points)}\n\n"
+            plan_md += f"**递进关系**: {unit.progression_logic}\n\n"
+            plan_md += "---\n\n### 各课时大纲\n\n"
+            for lo in unit.lessons:
+                plan_md += f"**第{lo.lesson_number}课时: {lo.title}**\n"
+                plan_md += f"- 核心内容: {lo.core_content}\n"
+                plan_md += f"- 目标: {'；'.join(lo.objectives)}\n"
+                if lo.prerequisites:
+                    plan_md += f"- 前置知识: {lo.prerequisites}\n"
+                plan_md += "\n"
+
+            # 渲染各课时教案
+            lessons_md = "## 各课时教案\n\n"
+            lessons = result.get("lessons", [])
+            for i, lesson in enumerate(lessons):
+                lesson_num = i + 1
+                if "error" in lesson:
+                    lessons_md += f"### 第{lesson_num}课时 — 生成失败\n\n"
+                    lessons_md += f"错误: {lesson['error']}\n\n---\n\n"
+                    continue
+
+                runtime_data = lesson.get("teacher_runtime_plan", {})
+                if runtime_data:
+                    try:
+                        plan = TeacherRuntimePlan.model_validate(runtime_data)
+                        lessons_md += f"### 第{lesson_num}课时: {plan.summary[:50] if plan.summary else plan.topic}\n\n"
+                        quality = score_runtime_plan(plan)
+                        lessons_md += f"*评分: {quality['total']}/{quality['max']} ({quality['grade']})*\n\n"
+                        lessons_md += render_markdown(plan)
+                        lessons_md += "\n\n---\n\n"
+                    except Exception:
+                        lessons_md += f"### 第{lesson_num}课时 — 解析失败\n\n---\n\n"
+
+            # 连贯性问题
+            issues = result.get("coherence_issues", [])
+            if issues:
+                lessons_md += "\n## ⚠ 连贯性问题\n\n"
+                for issue in issues:
+                    lessons_md += f"- {issue}\n"
+
+            status = f"单元计划生成完成 | {len(lessons)} 个课时"
+            if issues:
+                status += f" | {len(issues)} 个连贯性问题"
+
+            return status, plan_md + "\n\n" + lessons_md
+
+        unit_btn.click(
+            fn=do_unit_plan,
+            inputs=[unit_topic, unit_grade, unit_lessons_count, unit_provider, unit_duration, unit_level],
+            outputs=[unit_status, unit_plan_preview],
+        )
 
     return demo
 
